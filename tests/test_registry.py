@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from asc_orchestrator.registry import (  # noqa: E402
@@ -19,7 +18,6 @@ from asc_orchestrator.registry import (  # noqa: E402
     load_registry,
     validate_entry,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,19 +49,25 @@ class RegistryTests(unittest.TestCase):
             validate_entry(invalid)
 
         invalid = json.loads(json.dumps(self.entries["investigator"]))
-        invalid["owned-artifacts"]["artifact-ownership"]["investigation-report"] = "unowned"
+        invalid["owned-artifacts"]["artifact-ownership"]["investigation-report"] = (
+            "unowned"
+        )
         with self.assertRaisesRegex(RegistryValidationError, "shared-with"):
             validate_entry(invalid)
 
     def test_requires_complete_and_exact_artifact_metadata(self) -> None:
         invalid = json.loads(json.dumps(self.entries["investigator"]))
         del invalid["owned-artifacts"]["artifact-retention"]["language-statistics"]
-        with self.assertRaisesRegex(RegistryValidationError, "missing metadata.*language-statistics"):
+        with self.assertRaisesRegex(
+            RegistryValidationError, "missing metadata.*language-statistics"
+        ):
             validate_entry(invalid)
 
         invalid = json.loads(json.dumps(self.entries["investigator"]))
         invalid["owned-artifacts"]["artifact-locations"]["undeclared-artifact"] = "tmp/"
-        with self.assertRaisesRegex(RegistryValidationError, "undeclared artifact type.*undeclared-artifact"):
+        with self.assertRaisesRegex(
+            RegistryValidationError, "undeclared artifact type.*undeclared-artifact"
+        ):
             validate_entry(invalid)
 
     def test_rejects_malformed_json_and_missing_directories(self) -> None:
@@ -79,8 +83,12 @@ class RegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
             duplicate = json.loads(json.dumps(self.entries["investigator"]))
-            (directory / "investigator.json").write_text(json.dumps(duplicate), encoding="utf-8")
-            (directory / "investigator1.json").write_text(json.dumps(duplicate), encoding="utf-8")
+            (directory / "investigator.json").write_text(
+                json.dumps(duplicate), encoding="utf-8"
+            )
+            (directory / "investigator1.json").write_text(
+                json.dumps(duplicate), encoding="utf-8"
+            )
             with self.assertRaises(DuplicateAgentIdError):
                 load_registry(directory)
 

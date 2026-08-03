@@ -14,6 +14,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 
 - Python runtime foundation for ACP v1.0 and ACR v1.0 validation
 - Canonical PESE v1.0 specification for persistent mission, execution, validation, risk, agent, repository, and checkpoint state
+- PESE v1.0 runtime for atomic state history, checkpoints, integrity validation, deterministic resume, locking, recovery, and migration records
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -28,11 +29,26 @@ python -m unittest discover -s tests -t . -v
 $env:PYTHONPATH = "src"
 python -m asc_orchestrator --root . config
 python -m asc_orchestrator --root . registry
+python -m asc_orchestrator --root . state --initialize
+python -m asc_orchestrator --root . state
+python -m asc_orchestrator --root . validate-state
+python -m asc_orchestrator --root . resume
+python -m asc_orchestrator --root . checkpoint --mission-id MISSION:example
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
 
-PESE is specified in [PESE v1.0](./docs/PESE_v1.0.md). The specification is authoritative; its executable runtime is the subsequent MISSION-007 milestone.
+PESE persists only beneath `.project-os/PESE/`. `state --initialize` creates the required layout and revision 1; all normal state changes belong to the typed PESE runtime API, so the CLI `checkpoint` command deliberately creates only a `MANUAL` checkpoint. `resume` is read-only. Every state command emits a structured outcome, including its operation ID and non-secret integrity findings.
+
+PESE is specified in [PESE v1.0](./docs/PESE_v1.0.md), which remains the canonical contract. Validate a checkout with:
+
+```powershell
+python -m unittest discover -s tests -t . -v
+python -m mypy
+python -m ruff check src tests scripts
+python -m ruff format --check src tests scripts
+python scripts/validate_docs.py
+```
 
 ## Documentation
 

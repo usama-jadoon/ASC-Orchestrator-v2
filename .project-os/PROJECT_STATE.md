@@ -1,6 +1,6 @@
 # Project State
 
-Status: M006_5_COMPLETE
+Status: MISSION_007_COMPLETE
 
 ## Product and users
 
@@ -8,7 +8,7 @@ ASC Orchestrator v2 provides deterministic, auditable assembly and operation of 
 
 ## Verified stack
 
-Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` configuration; JSON registry entries.
+Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` configuration; JSON registry entries; MyPy and Ruff verification gates.
 
 ## Architecture and canonical contracts
 
@@ -22,20 +22,24 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - ACR v1.0 deterministic JSON registry loader/validator and the investigator/security-auditor seed entries.
 - TOML runtime configuration and source-compatible `unittest` suite.
 - Canonical PESE v1.0 specification, including the state, checkpoint, locking, integrity, recovery, migration, and resume contracts required by MISSION-007.
+- PESE v1.0 runtime with canonical state history, hash-chained access/transition audits, atomic writer and audit locks, checkpointing, integrity validation, deterministic resume, recovery, and migration records.
+- PESE CLI commands: `state`, `resume`, `checkpoint`, and `validate-state`.
 
 ## Active work
 
-No active implementation work. MISSION-007 may implement PESE v1.0; MSS remains required before TBE assembly begins.
+No active implementation work. MSS remains required before TBE assembly begins.
 
 ## Incomplete capabilities
 
-Mission Specification Standard (MSS), PESE runtime, TBE assembly algorithm, agent execution, crypto key management, and production audit signing are not yet implemented.
+Mission Specification Standard (MSS), TBE assembly algorithm, agent execution, crypto key management, and production audit signing are not yet implemented.
 
 ## Release status
 
-M006.5 establishes the PESE contract but is not production-ready: transport, identity keys/signatures, encryption, MSS, PESE runtime, and TBE are intentionally absent.
+MISSION-007 implements the PESE runtime foundation but is not production-ready: transport, identity keys/signatures, encryption, MSS, TBE assembly, and agent execution are intentionally absent.
 
 ## Last verified
+
+2026-08-04 - MISSION-007 PESE runtime passed 44 unit tests, three repeated full-suite reliability runs, MyPy, Ruff, compilation, documentation validation, runtime Git lifecycle checks, and independent QA/conformance review.
 
 2026-08-04 — M006.5 PESE v1.0 specification passed JSON-example, structural-topic, and independent ACP/ACR/TBE compatibility review.
 

@@ -13,12 +13,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_REGISTRY_DIRECTORY = Path(".project-os/COMPANY/DEPARTMENTS")
 
 _AGENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _SEMVER = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$")
-_OWNERSHIP = re.compile(r"^(?:exclusive|shared|shared-with-[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$")
+_OWNERSHIP = re.compile(
+    r"^(?:exclusive|shared|shared-with-[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
+)
 
 
 class RegistryError(ValueError):
@@ -44,25 +45,79 @@ _SECTIONS: dict[str, tuple[str, ...]] = {
     "responsibilities": ("primary-duties", "excluded-duties"),
     "authority": ("autonomous-decisions", "escalation-decisions", "authority-scope"),
     "decision-rights": ("decision-types", "decision-criteria", "reversibility"),
-    "escalation-rights": ("escalation-triggers", "escalation-paths", "escalation-timeout"),
+    "escalation-rights": (
+        "escalation-triggers",
+        "escalation-paths",
+        "escalation-timeout",
+    ),
     "required-skills": ("competencies", "proficiency-levels", "skill-validators"),
-    "allowed-tools": ("tool-categories", "specific-tools", "tool-restrictions", "tool-validation"),
+    "allowed-tools": (
+        "tool-categories",
+        "specific-tools",
+        "tool-restrictions",
+        "tool-validation",
+    ),
     "allowed-mcp-servers": ("mcp-server-types", "specific-servers", "mcp-restrictions"),
-    "owned-artifacts": ("artifact-types", "artifact-locations", "artifact-ownership", "artifact-retention"),
-    "owned-repository-areas": ("owned-paths", "writable-paths", "path-restrictions", "path-validation"),
+    "owned-artifacts": (
+        "artifact-types",
+        "artifact-locations",
+        "artifact-ownership",
+        "artifact-retention",
+    ),
+    "owned-repository-areas": (
+        "owned-paths",
+        "writable-paths",
+        "path-restrictions",
+        "path-validation",
+    ),
     "communication-rights": (
         "message-types-sent",
         "message-types-received",
         "communication-restrictions",
         "correlation-rules",
     ),
-    "validation-duties": ("validation-gates", "validation-criteria", "evidence-requirements", "validation-automation"),
-    "recovery-duties": ("recovery-scenarios", "recovery-procedures", "state-checkpoints", "recovery-validation"),
-    "kpis-and-success-metrics": ("kpi-definitions", "metric-collection-method", "success-thresholds", "metric-reporting-frequency"),
-    "parallel-execution-rules": ("can-run-concurrently", "shared-resources", "conflict-resolution", "resource-limits"),
-    "dependencies": ("agent-dependencies", "tool-dependencies", "environment-dependencies", "dependency-validation"),
-    "input-contracts": ("input-message-types", "input-schema", "input-validation", "input-state-requirements"),
-    "output-contracts": ("output-message-types", "output-schema", "output-state-changes", "output-validation"),
+    "validation-duties": (
+        "validation-gates",
+        "validation-criteria",
+        "evidence-requirements",
+        "validation-automation",
+    ),
+    "recovery-duties": (
+        "recovery-scenarios",
+        "recovery-procedures",
+        "state-checkpoints",
+        "recovery-validation",
+    ),
+    "kpis-and-success-metrics": (
+        "kpi-definitions",
+        "metric-collection-method",
+        "success-thresholds",
+        "metric-reporting-frequency",
+    ),
+    "parallel-execution-rules": (
+        "can-run-concurrently",
+        "shared-resources",
+        "conflict-resolution",
+        "resource-limits",
+    ),
+    "dependencies": (
+        "agent-dependencies",
+        "tool-dependencies",
+        "environment-dependencies",
+        "dependency-validation",
+    ),
+    "input-contracts": (
+        "input-message-types",
+        "input-schema",
+        "input-validation",
+        "input-state-requirements",
+    ),
+    "output-contracts": (
+        "output-message-types",
+        "output-schema",
+        "output-state-changes",
+        "output-validation",
+    ),
 }
 
 _IDENTITY = ("agent-id", "version", "display-name", "description")
@@ -73,33 +128,68 @@ _EMPTY_LISTS_ALLOWED = {
 }
 
 _LIST_FIELDS = {
-    ("purpose", "mission-types"), ("purpose", "value-streams"), ("purpose", "strategic-objectives"),
-    ("responsibilities", "primary-duties"), ("responsibilities", "secondary-duties"), ("responsibilities", "excluded-duties"),
-    ("authority", "autonomous-decisions"), ("authority", "escalation-decisions"), ("authority", "authority-scope"),
+    ("purpose", "mission-types"),
+    ("purpose", "value-streams"),
+    ("purpose", "strategic-objectives"),
+    ("responsibilities", "primary-duties"),
+    ("responsibilities", "secondary-duties"),
+    ("responsibilities", "excluded-duties"),
+    ("authority", "autonomous-decisions"),
+    ("authority", "escalation-decisions"),
+    ("authority", "authority-scope"),
     ("decision-rights", "decision-types"),
     ("escalation-rights", "escalation-triggers"),
     ("required-skills", "competencies"),
-    ("allowed-tools", "tool-categories"), ("allowed-tools", "specific-tools"), ("allowed-tools", "tool-restrictions"), ("allowed-tools", "tool-validation"),
-    ("allowed-mcp-servers", "mcp-server-types"), ("allowed-mcp-servers", "specific-servers"), ("allowed-mcp-servers", "mcp-restrictions"),
+    ("allowed-tools", "tool-categories"),
+    ("allowed-tools", "specific-tools"),
+    ("allowed-tools", "tool-restrictions"),
+    ("allowed-tools", "tool-validation"),
+    ("allowed-mcp-servers", "mcp-server-types"),
+    ("allowed-mcp-servers", "specific-servers"),
+    ("allowed-mcp-servers", "mcp-restrictions"),
     ("owned-artifacts", "artifact-types"),
-    ("owned-repository-areas", "owned-paths"), ("owned-repository-areas", "writable-paths"), ("owned-repository-areas", "path-restrictions"), ("owned-repository-areas", "path-validation"),
-    ("communication-rights", "message-types-sent"), ("communication-rights", "message-types-received"), ("communication-rights", "communication-restrictions"), ("communication-rights", "correlation-rules"),
+    ("owned-repository-areas", "owned-paths"),
+    ("owned-repository-areas", "writable-paths"),
+    ("owned-repository-areas", "path-restrictions"),
+    ("owned-repository-areas", "path-validation"),
+    ("communication-rights", "message-types-sent"),
+    ("communication-rights", "message-types-received"),
+    ("communication-rights", "communication-restrictions"),
+    ("communication-rights", "correlation-rules"),
     ("validation-duties", "validation-gates"),
     ("recovery-duties", "recovery-scenarios"),
-    ("dependencies", "tool-dependencies"), ("dependencies", "environment-dependencies"), ("dependencies", "dependency-validation"),
-    ("input-contracts", "input-message-types"), ("input-contracts", "input-validation"), ("input-contracts", "input-state-requirements"),
-    ("output-contracts", "output-message-types"), ("output-contracts", "output-state-changes"), ("output-contracts", "output-validation"),
+    ("dependencies", "tool-dependencies"),
+    ("dependencies", "environment-dependencies"),
+    ("dependencies", "dependency-validation"),
+    ("input-contracts", "input-message-types"),
+    ("input-contracts", "input-validation"),
+    ("input-contracts", "input-state-requirements"),
+    ("output-contracts", "output-message-types"),
+    ("output-contracts", "output-state-changes"),
+    ("output-contracts", "output-validation"),
 }
 
 _MAPPING_FIELDS = {
-    ("decision-rights", "decision-criteria"), ("decision-rights", "reversibility"),
+    ("decision-rights", "decision-criteria"),
+    ("decision-rights", "reversibility"),
     ("escalation-rights", "escalation-paths"),
-    ("required-skills", "proficiency-levels"), ("required-skills", "skill-validators"),
-    ("owned-artifacts", "artifact-locations"), ("owned-artifacts", "artifact-ownership"), ("owned-artifacts", "artifact-retention"),
-    ("validation-duties", "validation-criteria"), ("validation-duties", "evidence-requirements"), ("validation-duties", "validation-automation"),
-    ("recovery-duties", "recovery-procedures"), ("recovery-duties", "state-checkpoints"), ("recovery-duties", "recovery-validation"),
-    ("kpis-and-success-metrics", "kpi-definitions"), ("kpis-and-success-metrics", "metric-collection-method"), ("kpis-and-success-metrics", "success-thresholds"), ("kpis-and-success-metrics", "metric-reporting-frequency"),
-    ("input-contracts", "input-schema"), ("output-contracts", "output-schema"),
+    ("required-skills", "proficiency-levels"),
+    ("required-skills", "skill-validators"),
+    ("owned-artifacts", "artifact-locations"),
+    ("owned-artifacts", "artifact-ownership"),
+    ("owned-artifacts", "artifact-retention"),
+    ("validation-duties", "validation-criteria"),
+    ("validation-duties", "evidence-requirements"),
+    ("validation-duties", "validation-automation"),
+    ("recovery-duties", "recovery-procedures"),
+    ("recovery-duties", "state-checkpoints"),
+    ("recovery-duties", "recovery-validation"),
+    ("kpis-and-success-metrics", "kpi-definitions"),
+    ("kpis-and-success-metrics", "metric-collection-method"),
+    ("kpis-and-success-metrics", "success-thresholds"),
+    ("kpis-and-success-metrics", "metric-reporting-frequency"),
+    ("input-contracts", "input-schema"),
+    ("output-contracts", "output-schema"),
 }
 
 
@@ -116,7 +206,9 @@ def _require_nonempty_string(value: Any, source: str | Path | None, field: str) 
         _fail(source, field, "must be a non-empty string")
 
 
-def _require_nonempty_list(value: Any, source: str | Path | None, field: str, *, allow_empty: bool = False) -> None:
+def _require_nonempty_list(
+    value: Any, source: str | Path | None, field: str, *, allow_empty: bool = False
+) -> None:
     if not isinstance(value, list):
         _fail(source, field, "must be a list")
     if not value and not allow_empty:
@@ -125,7 +217,9 @@ def _require_nonempty_list(value: Any, source: str | Path | None, field: str, *,
         _require_nonempty_string(item, source, f"{field}[{index}]")
 
 
-def _require_mapping(value: Any, source: str | Path | None, field: str) -> Mapping[str, Any]:
+def _require_mapping(
+    value: Any, source: str | Path | None, field: str
+) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or not value:
         _fail(source, field, "must be a non-empty object")
     for key in value:
@@ -133,7 +227,9 @@ def _require_mapping(value: Any, source: str | Path | None, field: str) -> Mappi
     return value
 
 
-def _validate_mapping_values(value: Mapping[str, Any], source: str | Path | None, field: str) -> None:
+def _validate_mapping_values(
+    value: Mapping[str, Any], source: str | Path | None, field: str
+) -> None:
     """Validate the nested ACR data maps without over-constraining their prose."""
     for key, child in value.items():
         child_field = f"{field}.{key}"
@@ -197,13 +293,17 @@ def validate_entry(
                 _require_nonempty_string(value, source, f"{section}.{field}")
 
         if section == "responsibilities" and "secondary-duties" in section_value:
-            _require_nonempty_list(section_value["secondary-duties"], source, f"{section}.secondary-duties")
+            _require_nonempty_list(
+                section_value["secondary-duties"], source, f"{section}.secondary-duties"
+            )
 
     ownership = entry["owned-artifacts"]["artifact-ownership"]
     if not isinstance(ownership, Mapping):
         _fail(source, "owned-artifacts.artifact-ownership", "must be an object")
     for artifact, ownership_class in ownership.items():
-        _require_nonempty_string(ownership_class, source, f"owned-artifacts.artifact-ownership.{artifact}")
+        _require_nonempty_string(
+            ownership_class, source, f"owned-artifacts.artifact-ownership.{artifact}"
+        )
         if not _OWNERSHIP.fullmatch(ownership_class):
             _fail(
                 source,
@@ -212,7 +312,11 @@ def validate_entry(
             )
 
     artifact_types = set(entry["owned-artifacts"]["artifact-types"])
-    for metadata_field in ("artifact-locations", "artifact-ownership", "artifact-retention"):
+    for metadata_field in (
+        "artifact-locations",
+        "artifact-ownership",
+        "artifact-retention",
+    ):
         metadata = entry["owned-artifacts"][metadata_field]
         metadata_types = set(metadata)
         missing = sorted(artifact_types - metadata_types)
@@ -231,7 +335,9 @@ def validate_entry(
             )
 
 
-def load_registry(directory: str | Path = DEFAULT_REGISTRY_DIRECTORY) -> dict[str, dict[str, Any]]:
+def load_registry(
+    directory: str | Path = DEFAULT_REGISTRY_DIRECTORY,
+) -> dict[str, dict[str, Any]]:
     """Load a directory of ACR JSON entries in deterministic filename order.
 
     A missing directory, malformed JSON, duplicate IDs, or an entry whose ID
@@ -239,20 +345,30 @@ def load_registry(directory: str | Path = DEFAULT_REGISTRY_DIRECTORY) -> dict[st
     """
     registry_directory = Path(directory)
     if not registry_directory.is_dir():
-        raise RegistryLoadError(f"registry directory does not exist: {registry_directory}")
+        raise RegistryLoadError(
+            f"registry directory does not exist: {registry_directory}"
+        )
 
     entries: dict[str, dict[str, Any]] = {}
-    for path in sorted(registry_directory.glob("*.json"), key=lambda candidate: candidate.name):
+    for path in sorted(
+        registry_directory.glob("*.json"), key=lambda candidate: candidate.name
+    ):
         expected_agent_id = path.stem
         if not _AGENT_ID.fullmatch(expected_agent_id):
-            raise RegistryLoadError(f"registry filename must be lowercase kebab-case: {path.name}")
+            raise RegistryLoadError(
+                f"registry filename must be lowercase kebab-case: {path.name}"
+            )
         try:
             with path.open("r", encoding="utf-8") as document:
                 entry = json.load(document)
         except OSError as error:
-            raise RegistryLoadError(f"cannot read registry entry {path}: {error}") from error
+            raise RegistryLoadError(
+                f"cannot read registry entry {path}: {error}"
+            ) from error
         except json.JSONDecodeError as error:
-            raise RegistryLoadError(f"malformed JSON in registry entry {path}: {error.msg}") from error
+            raise RegistryLoadError(
+                f"malformed JSON in registry entry {path}: {error.msg}"
+            ) from error
 
         validate_entry(entry, source=path)
         agent_id = entry["agent-id"]

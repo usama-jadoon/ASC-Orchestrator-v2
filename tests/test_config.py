@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 
-from asc_orchestrator.config import ConfigurationError, load_config
 from asc_orchestrator.cli import main
+from asc_orchestrator.config import ConfigurationError, load_config
 
 
 class LoadConfigTests(unittest.TestCase):

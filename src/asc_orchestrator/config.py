@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-import tomllib
 
 from .errors import ConfigurationError
-
 
 DEFAULT_CONFIG_NAME = "asc-orchestrator.toml"
 REQUIRED_RUNTIME_KEYS = {
@@ -58,12 +57,14 @@ def load_config(
     missing = REQUIRED_RUNTIME_KEYS.difference(runtime)
     if missing:
         raise ConfigurationError(
-            "runtime configuration is missing required keys: " + ", ".join(sorted(missing))
+            "runtime configuration is missing required keys: "
+            + ", ".join(sorted(missing))
         )
     unknown = set(runtime).difference(REQUIRED_RUNTIME_KEYS)
     if unknown:
         raise ConfigurationError(
-            "runtime configuration contains unsupported keys: " + ", ".join(sorted(unknown))
+            "runtime configuration contains unsupported keys: "
+            + ", ".join(sorted(unknown))
         )
 
     protocol_version = runtime["protocol_version"]
@@ -72,7 +73,9 @@ def load_config(
 
     return RuntimeConfig(
         repository_root=root,
-        project_os_dir=_resolve_relative(root, runtime["project_os_dir"], "project_os_dir"),
+        project_os_dir=_resolve_relative(
+            root, runtime["project_os_dir"], "project_os_dir"
+        ),
         registry_dir=_resolve_relative(root, runtime["registry_dir"], "registry_dir"),
         audit_dir=_resolve_relative(root, runtime["audit_dir"], "audit_dir"),
         protocol_version=protocol_version,

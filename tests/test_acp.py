@@ -4,24 +4,23 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from uuid import uuid4
-
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from asc_orchestrator.acp import (  # noqa: E402
-    ACPMessage,
-    ACPParseError,
     MESSAGE_TYPES,
     REQUIRED_PAYLOAD_FIELDS,
+    ACPMessage,
+    ACPParseError,
     parse_message,
 )
 from asc_orchestrator.audit import AuditJournal  # noqa: E402
@@ -67,7 +66,9 @@ def _message(message_type: str = "HEARTBEAT") -> ACPMessage:
             "CANCELLING-AGENT": sender,
         }
     )
-    payload = [(field, values[field]) for field in REQUIRED_PAYLOAD_FIELDS[message_type]]
+    payload = [
+        (field, values[field]) for field in REQUIRED_PAYLOAD_FIELDS[message_type]
+    ]
     return ACPMessage.create(
         message_type,
         sender,
@@ -80,9 +81,14 @@ def _message(message_type: str = "HEARTBEAT") -> ACPMessage:
 
 
 class ACPMessageTests(unittest.TestCase):
-    def _with_replaced_value(self, message_type: str, field: str, value: str) -> ACPMessage:
+    def _with_replaced_value(
+        self, message_type: str, field: str, value: str
+    ) -> ACPMessage:
         message = _message(message_type)
-        payload = [(key, value if key == field else existing) for key, existing in message.payload]
+        payload = [
+            (key, value if key == field else existing)
+            for key, existing in message.payload
+        ]
         return ACPMessage.create(
             message.message_type,
             message.sender,
@@ -115,7 +121,11 @@ class ACPMessageTests(unittest.TestCase):
         payload = list(message.payload)
         payload[0], payload[1] = payload[1], payload[0]
         text = "\n".join(f"{key}:{value}" for key, value in payload)
-        invalid = wire.split("\n")[:7] + ["PAYLOAD-SHA256:" + hashlib.sha256(text.encode()).hexdigest()] + text.split("\n")
+        invalid = (
+            wire.split("\n")[:7]
+            + ["PAYLOAD-SHA256:" + hashlib.sha256(text.encode()).hexdigest()]
+            + text.split("\n")
+        )
         with self.assertRaises(ACPParseError):
             parse_message("\n".join(invalid))
 
@@ -136,10 +146,19 @@ class ACPMessageTests(unittest.TestCase):
         self.assertEqual(_message("HEARTBEAT").message_type, "HEARTBEAT")
         with self.assertRaises(Exception):
             ACPMessage.create(
-                "STATUS_UPDATE", f"AGENT:developer:{uuid4()}", "NONE", "NONE",
-                "2026-08-04T12:34:56.789Z", str(uuid4()),
-                [("STEP", "2/1"), ("PROGRESS-PERCENT", "101"), ("BLOCKERS", "NONE"),
-                 ("RESOURCE-USAGE", "0|0"), ("NEXT-EXPECTED-OUTCOME", "x")],
+                "STATUS_UPDATE",
+                f"AGENT:developer:{uuid4()}",
+                "NONE",
+                "NONE",
+                "2026-08-04T12:34:56.789Z",
+                str(uuid4()),
+                [
+                    ("STEP", "2/1"),
+                    ("PROGRESS-PERCENT", "101"),
+                    ("BLOCKERS", "NONE"),
+                    ("RESOURCE-USAGE", "0|0"),
+                    ("NEXT-EXPECTED-OUTCOME", "x"),
+                ],
             )
 
     def test_rejects_all_closed_acp_payload_domains(self) -> None:
@@ -180,10 +199,16 @@ class AuditJournalTests(unittest.TestCase):
     def test_explicit_directory_concurrent_append_and_traversal_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             custom_directory = Path(temporary_directory) / "custom-audit"
-            journal = AuditJournal(temporary_directory, audit_directory=custom_directory)
+            journal = AuditJournal(
+                temporary_directory, audit_directory=custom_directory
+            )
             self.assertEqual(journal.directory, custom_directory.resolve())
             with ThreadPoolExecutor(max_workers=4) as executor:
-                list(executor.map(lambda _: journal.append("OUT", _message(), "VALID"), range(12)))
+                list(
+                    executor.map(
+                        lambda _: journal.append("OUT", _message(), "VALID"), range(12)
+                    )
+                )
             self.assertEqual(len(list(journal.entries())), 12)
             self.assertTrue(journal.verify_chain())
             with self.assertRaises(Exception):
@@ -198,10 +223,18 @@ class AuditJournalTests(unittest.TestCase):
                 "AuditJournal(Path(sys.argv[1])).append('OUT', sys.argv[2], 'VALID')"
             )
             environment = dict(os.environ)
-            environment["PYTHONPATH"] = str(SRC) + os.pathsep + environment.get("PYTHONPATH", "")
+            environment["PYTHONPATH"] = (
+                str(SRC) + os.pathsep + environment.get("PYTHONPATH", "")
+            )
             processes = [
                 subprocess.Popen(
-                    [sys.executable, "-c", script, temporary_directory, f"message-{index}"],
+                    [
+                        sys.executable,
+                        "-c",
+                        script,
+                        temporary_directory,
+                        f"message-{index}",
+                    ],
                     env=environment,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from contextlib import contextmanager
 import hashlib
 import json
 import os
-from pathlib import Path
 import threading
 import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterator
 
 from .acp import ACPMessage, serialize_message
@@ -38,7 +38,7 @@ def _process_lock(lock_path: Path) -> Iterator[None]:
             lock_file.flush()
         lock_file.seek(0)
         try:
-            import fcntl  # type: ignore[import-not-found]
+            import fcntl
         except ImportError:
             import msvcrt
 
@@ -51,10 +51,19 @@ def _process_lock(lock_path: Path) -> Iterator[None]:
                     if attempt == 99:
                         raise AuditError("timed out acquiring the audit journal lock")
                     time.sleep(0.01)
-            unlock = lambda: msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+            def unlock() -> None:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
         else:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            unlock = lambda: fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            flock = getattr(fcntl, "flock")
+            lock_ex = getattr(fcntl, "LOCK_EX")
+            lock_un = getattr(fcntl, "LOCK_UN")
+            flock(lock_file.fileno(), lock_ex)
+
+            def unlock() -> None:
+                flock(lock_file.fileno(), lock_un)
+
         try:
             yield
         finally:
@@ -75,7 +84,11 @@ class AuditJournal:
         root = Path(project_root).resolve()
         if Path(filename).name != filename or filename in {"", ".", ".."}:
             raise AuditError("filename must be a non-empty basename")
-        self.directory = (Path(audit_directory) if audit_directory is not None else root / ".project-os" / "AUDIT").resolve()
+        self.directory = (
+            Path(audit_directory)
+            if audit_directory is not None
+            else root / ".project-os" / "AUDIT"
+        ).resolve()
         self.path = (self.directory / filename).resolve()
         self.lock_path = self.directory / f".{filename}.lock"
         try:
@@ -92,7 +105,9 @@ class AuditJournal:
 
     @staticmethod
     def _canonical_json(record: dict[str, object]) -> str:
-        return json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return json.dumps(
+            record, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
 
     @classmethod
     def _entry_hash(cls, record: dict[str, object]) -> str:
@@ -149,7 +164,10 @@ class AuditJournal:
             self.directory.mkdir(parents=True, exist_ok=True)
             with _process_lock(self.lock_path):
                 if not self.verify_chain():
-                    raise AuditError("refusing to append to an audit journal with a broken hash chain")
+                    raise AuditError(
+                        "refusing to append to an audit journal with a broken hash "
+                        "chain"
+                    )
                 record: dict[str, object] = {
                     "timestamp": self._timestamp(),
                     "direction": direction,
@@ -191,7 +209,10 @@ class AuditJournal:
                 return False
             if record.get("entry_hash") != self._entry_hash(record):
                 return False
-            previous_hash = record["entry_hash"]  # type: ignore[assignment]
+            entry_hash = record.get("entry_hash")
+            if not isinstance(entry_hash, str):
+                return False
+            previous_hash = entry_hash
         return True
 
 
@@ -204,4 +225,6 @@ def append_audit_record(
     audit_directory: str | Path | None = None,
 ) -> dict[str, object]:
     """Convenience wrapper for a single local ACP audit append."""
-    return AuditJournal(project_root, audit_directory=audit_directory).append(direction, message, verification_status)
+    return AuditJournal(project_root, audit_directory=audit_directory).append(
+        direction, message, verification_status
+    )

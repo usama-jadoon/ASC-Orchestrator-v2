@@ -1,6 +1,23 @@
 __pycache__/
 *.py[cod]
 .coverage
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Editor/OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
 build/
 dist/
 *.egg-info/

@@ -7,14 +7,13 @@ execution.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from types import MappingProxyType
 from typing import Iterable, Mapping
 from uuid import UUID
-
 
 PROTOCOL = "ACP/v1.0"
 HEADER_FIELDS = (
@@ -52,24 +51,133 @@ MESSAGE_TYPES = (
 # The source protocol explicitly marks only these fields as optional.  The
 # order of all fields is normative, whether optional fields are present or not.
 PAYLOAD_FIELD_REQUIREMENTS: Mapping[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "ASSIGNMENT": (("OBJECTIVE", "BOUNDARIES", "AUTHORITY", "DELIVERABLES", "PRIORITY", "VALUE"), ()),
-    "STATUS_UPDATE": (("STEP", "PROGRESS-PERCENT", "BLOCKERS", "RESOURCE-USAGE", "NEXT-EXPECTED-OUTCOME"), ()),
+    "ASSIGNMENT": (
+        ("OBJECTIVE", "BOUNDARIES", "AUTHORITY", "DELIVERABLES", "PRIORITY", "VALUE"),
+        (),
+    ),
+    "STATUS_UPDATE": (
+        (
+            "STEP",
+            "PROGRESS-PERCENT",
+            "BLOCKERS",
+            "RESOURCE-USAGE",
+            "NEXT-EXPECTED-OUTCOME",
+        ),
+        (),
+    ),
     "PROGRESS": (("COMPLETED-STEP", "EVIDENCE-REF", "OUTCOME", "NEXT-STEP"), ()),
     "EVIDENCE": (("TYPE", "REFERENCE", "HASH", "CONTEXT"), ("TIME-RANGE",)),
-    "QUESTION": (("WHAT-IS-NEEDED", "WHY-NEEDED", "CONTEXT-REFERENCE"), ("RESPONSE-DEADLINE",)),
-    "ESCALATION": (("ISSUE-TYPE", "DESCRIPTION", "EVIDENCE-REF", "IMPACT", "REQUESTED-ACTION", "TIME-BLOCKED"), ()),
-    "WARNING": (("CONDITION", "POTENTIAL-IMPACT", "TIME-OBSERVED"), ("SUGGESTED-MITIGATION",)),
-    "FAILURE": (("ERROR-CODE", "MESSAGE", "STACK-TRACE-or-LOG-REF", "ROOT-CAUSE-HYPOTHESIS", "RECOVERABLE", "SUGGECTED-NEXT-STEP"), ()),
-    "RECOVERY": (("FAILURE-REF", "RECOVERY-POINT", "STATE-CORRECTIONS", "VALIDATION-REF", "READY-TO-RESUME"), ()),
-    "VALIDATION": (("GATE", "RESULT", "FINDINGS", "EVIDENCE-REF", "REQUIRED-ACTIONS", "RETRY-ALLOWED"), ()),
-    "APPROVAL": (("APPROVING-AGENT", "ITEM-APPROVED", "APPROVAL-TYPE", "CONDITIONS"), ("EFFECTIVE-UNTIL",)),
-    "COMPLETION": (("ALL-GATES-PASSED", "DELIVERABLES-REF", "OUTCOME-VALUE", "HANDOFF-READY"), ("POST-COMPLETION-NOTES",)),
-    "CANCELLATION": (("CANCELLING-AGENT", "REASON", "JUSTIFICATION", "PARTIAL-WORK-STATUS", "NOTIFICATION-REQ"), ()),
-    "REVIEW": (("ITEM-UNDER-REVIEW", "REVIEW-TYPE", "FEEDBACK-REQUESTED", "CONTEXT"), ("DEADLINE",)),
-    "DECISION": (("DECISION-ID", "CHOSEN-OPTION", "ALTERNATIVES-CONSIDERED", "EVIDENCE-BASIS", "EXPECTED-IMPACT", "REVERSIBLE", "REVERSIBILITY-CONDITIONS"), ()),
-    "KNOWLEDGE_UPDATE": (("KNOWLEDGE-TYPE", "TITLE", "DESCRIPTION", "APPLICABLE-SCOPE", "EVIDENCE-REF", "ENTRY-TIME"), ()),
-    "MISSION_UPDATE": (("FIELD-CHANGED", "OLD-VALUE", "NEW-VALUE", "CHANGE-REASON", "EFFECTIVE-IMMEDIATELY", "ACKNOWLEDGMENT-REQ"), ()),
-    "HEARTBEAT": (("STATUS", "CURRENT-TASK", "RESOURCE-LOAD", "LAST-HEARTBEAT"), ("NOTES",)),
+    "QUESTION": (
+        ("WHAT-IS-NEEDED", "WHY-NEEDED", "CONTEXT-REFERENCE"),
+        ("RESPONSE-DEADLINE",),
+    ),
+    "ESCALATION": (
+        (
+            "ISSUE-TYPE",
+            "DESCRIPTION",
+            "EVIDENCE-REF",
+            "IMPACT",
+            "REQUESTED-ACTION",
+            "TIME-BLOCKED",
+        ),
+        (),
+    ),
+    "WARNING": (
+        ("CONDITION", "POTENTIAL-IMPACT", "TIME-OBSERVED"),
+        ("SUGGESTED-MITIGATION",),
+    ),
+    "FAILURE": (
+        (
+            "ERROR-CODE",
+            "MESSAGE",
+            "STACK-TRACE-or-LOG-REF",
+            "ROOT-CAUSE-HYPOTHESIS",
+            "RECOVERABLE",
+            "SUGGECTED-NEXT-STEP",
+        ),
+        (),
+    ),
+    "RECOVERY": (
+        (
+            "FAILURE-REF",
+            "RECOVERY-POINT",
+            "STATE-CORRECTIONS",
+            "VALIDATION-REF",
+            "READY-TO-RESUME",
+        ),
+        (),
+    ),
+    "VALIDATION": (
+        (
+            "GATE",
+            "RESULT",
+            "FINDINGS",
+            "EVIDENCE-REF",
+            "REQUIRED-ACTIONS",
+            "RETRY-ALLOWED",
+        ),
+        (),
+    ),
+    "APPROVAL": (
+        ("APPROVING-AGENT", "ITEM-APPROVED", "APPROVAL-TYPE", "CONDITIONS"),
+        ("EFFECTIVE-UNTIL",),
+    ),
+    "COMPLETION": (
+        ("ALL-GATES-PASSED", "DELIVERABLES-REF", "OUTCOME-VALUE", "HANDOFF-READY"),
+        ("POST-COMPLETION-NOTES",),
+    ),
+    "CANCELLATION": (
+        (
+            "CANCELLING-AGENT",
+            "REASON",
+            "JUSTIFICATION",
+            "PARTIAL-WORK-STATUS",
+            "NOTIFICATION-REQ",
+        ),
+        (),
+    ),
+    "REVIEW": (
+        ("ITEM-UNDER-REVIEW", "REVIEW-TYPE", "FEEDBACK-REQUESTED", "CONTEXT"),
+        ("DEADLINE",),
+    ),
+    "DECISION": (
+        (
+            "DECISION-ID",
+            "CHOSEN-OPTION",
+            "ALTERNATIVES-CONSIDERED",
+            "EVIDENCE-BASIS",
+            "EXPECTED-IMPACT",
+            "REVERSIBLE",
+            "REVERSIBILITY-CONDITIONS",
+        ),
+        (),
+    ),
+    "KNOWLEDGE_UPDATE": (
+        (
+            "KNOWLEDGE-TYPE",
+            "TITLE",
+            "DESCRIPTION",
+            "APPLICABLE-SCOPE",
+            "EVIDENCE-REF",
+            "ENTRY-TIME",
+        ),
+        (),
+    ),
+    "MISSION_UPDATE": (
+        (
+            "FIELD-CHANGED",
+            "OLD-VALUE",
+            "NEW-VALUE",
+            "CHANGE-REASON",
+            "EFFECTIVE-IMMEDIATELY",
+            "ACKNOWLEDGMENT-REQ",
+        ),
+        (),
+    ),
+    "HEARTBEAT": (
+        ("STATUS", "CURRENT-TASK", "RESOURCE-LOAD", "LAST-HEARTBEAT"),
+        ("NOTES",),
+    ),
 }
 
 # Full on-wire field sequences.  It differs from the required/optional split
@@ -92,14 +200,17 @@ PAYLOAD_FIELD_ORDER: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "FEEDBACK-REQUESTED",
             "DEADLINE",
             "CONTEXT",
-        )
+        ),
     }
 )
 
 # Kept as a direct, useful compatibility surface for callers that only need
 # mandatory fields.
 REQUIRED_PAYLOAD_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {message_type: requirement[0] for message_type, requirement in PAYLOAD_FIELD_REQUIREMENTS.items()}
+    {
+        message_type: requirement[0]
+        for message_type, requirement in PAYLOAD_FIELD_REQUIREMENTS.items()
+    }
 )
 
 _AGENT_TYPE_RE = re.compile(r"[a-z][a-z0-9-]*\Z")
@@ -134,15 +245,21 @@ def validate_agent_id(value: str, *, allow_recipient_sentinels: bool = False) ->
         return value
     parts = value.split(":")
     if len(parts) != 3 or parts[0] != "AGENT" or not _AGENT_TYPE_RE.fullmatch(parts[1]):
-        raise ACPValidationError("agent identity must be AGENT:<lowercase-type>:<uuidv4>")
+        raise ACPValidationError(
+            "agent identity must be AGENT:<lowercase-type>:<uuidv4>"
+        )
     if not _is_uuid4(parts[2]):
-        raise ACPValidationError("agent identity instance ID must be a canonical UUIDv4")
+        raise ACPValidationError(
+            "agent identity instance ID must be a canonical UUIDv4"
+        )
     return value
 
 
 def _validate_timestamp(value: str) -> None:
     if not _UTC_MILLIS_RE.fullmatch(value):
-        raise ACPValidationError("TIMESTAMP must be ISO-8601 UTC with millisecond precision")
+        raise ACPValidationError(
+            "TIMESTAMP must be ISO-8601 UTC with millisecond precision"
+        )
     try:
         parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ")
     except ValueError as exc:
@@ -151,7 +268,9 @@ def _validate_timestamp(value: str) -> None:
         raise ACPValidationError("TIMESTAMP must be UTC")
 
 
-def _normalise_payload(payload: Mapping[str, str] | Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+def _normalise_payload(
+    payload: Mapping[str, str] | Iterable[tuple[str, str]],
+) -> tuple[tuple[str, str], ...]:
     items = tuple(payload.items()) if isinstance(payload, Mapping) else tuple(payload)
     normalised: list[tuple[str, str]] = []
     for item in items:
@@ -234,10 +353,14 @@ def _validate_payload(message_type: str, payload: tuple[tuple[str, str], ...]) -
     if any(not _PAYLOAD_FIELD_RE.fullmatch(field) for field in fields):
         raise ACPValidationError("payload contains an invalid field name")
     if any(value == "" or "\r" in value or "\n" in value for _, value in payload):
-        raise ACPValidationError("payload values must be non-empty single-line UTF-8 text")
+        raise ACPValidationError(
+            "payload values must be non-empty single-line UTF-8 text"
+        )
     if any(field not in fields for field in required):
         raise ACPValidationError("payload contains a missing required field")
-    positions = tuple(expected.index(field) if field in expected else -1 for field in fields)
+    positions = tuple(
+        expected.index(field) if field in expected else -1 for field in fields
+    )
     if -1 in positions:
         raise ACPValidationError("payload contains an unknown or out-of-order field")
     if positions != tuple(sorted(positions)):
@@ -253,7 +376,9 @@ def _require_enum(field: str, value: str, allowed: set[str]) -> None:
 
 def _validate_pipe_fields(field: str, value: str, count: int) -> None:
     if len(value.split("|")) != count or any(not item for item in value.split("|")):
-        raise ACPValidationError(f"{field} must contain {count} non-empty pipe-delimited values")
+        raise ACPValidationError(
+            f"{field} must contain {count} non-empty pipe-delimited values"
+        )
 
 
 def _validate_payload_semantics(message_type: str, values: Mapping[str, str]) -> None:
@@ -262,34 +387,79 @@ def _validate_payload_semantics(message_type: str, values: Mapping[str, str]) ->
         step = values["STEP"]
         if step != "N/A":
             match = re.fullmatch(r"(\d+)/(\d+)", step)
-            if not match or int(match.group(2)) == 0 or int(match.group(1)) > int(match.group(2)):
-                raise ACPValidationError("STEP must be N/A or current-step/positive-total-steps")
+            if (
+                not match
+                or int(match.group(2)) == 0
+                or int(match.group(1)) > int(match.group(2))
+            ):
+                raise ACPValidationError(
+                    "STEP must be N/A or current-step/positive-total-steps"
+                )
         try:
             percent = int(values["PROGRESS-PERCENT"])
         except ValueError as exc:
-            raise ACPValidationError("PROGRESS-PERCENT must be an integer from 0 to 100") from exc
+            raise ACPValidationError(
+                "PROGRESS-PERCENT must be an integer from 0 to 100"
+            ) from exc
         if not 0 <= percent <= 100 or str(percent) != values["PROGRESS-PERCENT"]:
-            raise ACPValidationError("PROGRESS-PERCENT must be an integer from 0 to 100")
+            raise ACPValidationError(
+                "PROGRESS-PERCENT must be an integer from 0 to 100"
+            )
         _validate_pipe_fields("RESOURCE-USAGE", values["RESOURCE-USAGE"], 3)
     if message_type == "ASSIGNMENT":
         _validate_pipe_fields("BOUNDARIES", values["BOUNDARIES"], 4)
         _validate_pipe_fields("AUTHORITY", values["AUTHORITY"], 2)
     if message_type == "HEARTBEAT":
-        _require_enum("STATUS", values["STATUS"], {"ready", "busy", "blocked", "failed"})
+        _require_enum(
+            "STATUS", values["STATUS"], {"ready", "busy", "blocked", "failed"}
+        )
         _validate_pipe_fields("RESOURCE-LOAD", values["RESOURCE-LOAD"], 2)
     enum_fields = {
         "ASSIGNMENT": {"PRIORITY": {"Critical", "High", "Medium", "Low"}},
         "EVIDENCE": {"TYPE": {"test", "log", "scan", "artifact", "document"}},
-        "ESCALATION": {"ISSUE-TYPE": {"blocker", "violation", "safety", "resource", "dependency"}},
+        "ESCALATION": {
+            "ISSUE-TYPE": {"blocker", "violation", "safety", "resource", "dependency"}
+        },
         "VALIDATION": {
-            "GATE": {"code-review", "security", "qa", "performance", "documentation", "contracts", "integrity", "readiness"},
+            "GATE": {
+                "code-review",
+                "security",
+                "qa",
+                "performance",
+                "documentation",
+                "contracts",
+                "integrity",
+                "readiness",
+            },
             "RESULT": {"PASS", "FAIL", "BLOCKED"},
         },
         "APPROVAL": {"APPROVAL-TYPE": {"authority", "stakeholder", "gate"}},
-        "CANCELLATION": {"REASON": {"business-priority", "constitutional", "blocked-impossible", "other"}},
+        "CANCELLATION": {
+            "REASON": {
+                "business-priority",
+                "constitutional",
+                "blocked-impossible",
+                "other",
+            }
+        },
         "REVIEW": {"REVIEW-TYPE": {"informal", "formal", "peer", "stakeholder"}},
-        "KNOWLEDGE_UPDATE": {"KNOWLEDGE-TYPE": {"pattern", "lesson", "best-practice", "architecture-decision"}},
-        "MISSION_UPDATE": {"FIELD-CHANGED": {"objective", "scope", "priority", "boundaries", "deliverables"}},
+        "KNOWLEDGE_UPDATE": {
+            "KNOWLEDGE-TYPE": {
+                "pattern",
+                "lesson",
+                "best-practice",
+                "architecture-decision",
+            }
+        },
+        "MISSION_UPDATE": {
+            "FIELD-CHANGED": {
+                "objective",
+                "scope",
+                "priority",
+                "boundaries",
+                "deliverables",
+            }
+        },
     }
     for field, allowed in enum_fields.get(message_type, {}).items():
         _require_enum(field, values[field], allowed)
@@ -356,8 +526,12 @@ def validate_message(message: ACPMessage) -> ACPMessage:
     _validate_timestamp(message.timestamp)
     if not _is_uuid4(message.correlation):
         raise ACPValidationError("CORRELATION must be a canonical UUIDv4")
-    if not isinstance(message.payload_sha256, str) or not _HEX_SHA256_RE.fullmatch(message.payload_sha256):
-        raise ACPValidationError("PAYLOAD-SHA256 must be 64 lowercase hexadecimal characters")
+    if not isinstance(message.payload_sha256, str) or not _HEX_SHA256_RE.fullmatch(
+        message.payload_sha256
+    ):
+        raise ACPValidationError(
+            "PAYLOAD-SHA256 must be 64 lowercase hexadecimal characters"
+        )
     payload = _normalise_payload(message.payload)
     _validate_payload(message.message_type, payload)
     try:
@@ -409,7 +583,10 @@ def parse_message(data: str | bytes) -> ACPMessage:
     lines = text.split("\n")
     if len(lines) <= len(HEADER_FIELDS):
         raise ACPParseError("message is missing a payload")
-    header_lines, payload_lines = lines[: len(HEADER_FIELDS)], lines[len(HEADER_FIELDS) :]
+    header_lines, payload_lines = (
+        lines[: len(HEADER_FIELDS)],
+        lines[len(HEADER_FIELDS) :],
+    )
     headers: dict[str, str] = {}
     for expected, line in zip(HEADER_FIELDS, header_lines):
         if not line.startswith(expected + ":"):
