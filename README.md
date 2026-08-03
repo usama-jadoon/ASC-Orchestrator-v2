@@ -12,11 +12,27 @@ To establish a foundation for autonomous software company operations through a m
 
 This repository serves as the foundation for the ASC Orchestrator v2, containing:
 
-- Repository structure and documentation skeleton
+- Python runtime foundation for ACP v1.0 and ACR v1.0 validation
+- Canonical PESE v1.0 specification for persistent mission, execution, validation, risk, agent, repository, and checkpoint state
+- Local configuration and CLI validation commands
+- JSON ACR department registry entries and deterministic registry loading
+- Standard-library automated tests
 - GitHub community files (CONTRIBUTING, ISSUE_TEMPLATES, etc.)
-- Placeholder AI host files
-- Templates and examples
-- Scripts and tests
+
+## Local development
+
+Python 3.11 or later is required. No third-party runtime dependencies are needed.
+
+```powershell
+python -m unittest discover -s tests -t . -v
+$env:PYTHONPATH = "src"
+python -m asc_orchestrator --root . config
+python -m asc_orchestrator --root . registry
+```
+
+`asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
+
+PESE is specified in [PESE v1.0](./docs/PESE_v1.0.md). The specification is authoritative; its executable runtime is the subsequent MISSION-007 milestone.
 
 ## Documentation
 

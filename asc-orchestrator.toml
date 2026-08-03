@@ -1,0 +1,5 @@
+[runtime]
+project_os_dir = ".project-os"
+registry_dir = ".project-os/COMPANY/DEPARTMENTS"
+audit_dir = ".project-os/AUDIT"
+protocol_version = "ACP/v1.0"

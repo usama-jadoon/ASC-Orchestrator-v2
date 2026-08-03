@@ -1,20 +1,43 @@
 # Project State
 
-Status: DISCOVERY_IN_PROGRESS
+Status: M006_5_COMPLETE
 
 ## Product and users
 
+ASC Orchestrator v2 provides deterministic, auditable assembly and operation of autonomous software-company agents.
+
 ## Verified stack
+
+Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` configuration; JSON registry entries.
 
 ## Architecture and canonical contracts
 
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 remains a later consumer of these foundations.
+
 ## Verified completed capabilities
+
+- Python package skeleton and CLI (`config`, `registry`, `acp` validation).
+- ACP v1.0 fixed-header, ordered-payload, integrity, semantic, and UTF-8 validation.
+- Local append-only, hash-chained ACP audit journal with process-safe local locking.
+- ACR v1.0 deterministic JSON registry loader/validator and the investigator/security-auditor seed entries.
+- TOML runtime configuration and source-compatible `unittest` suite.
+- Canonical PESE v1.0 specification, including the state, checkpoint, locking, integrity, recovery, migration, and resume contracts required by MISSION-007.
 
 ## Active work
 
+No active implementation work. MISSION-007 may implement PESE v1.0; MSS remains required before TBE assembly begins.
+
 ## Incomplete capabilities
+
+Mission Specification Standard (MSS), PESE runtime, TBE assembly algorithm, agent execution, crypto key management, and production audit signing are not yet implemented.
 
 ## Release status
 
+M006.5 establishes the PESE contract but is not production-ready: transport, identity keys/signatures, encryption, MSS, PESE runtime, and TBE are intentionally absent.
+
 ## Last verified
+
+2026-08-04 — M006.5 PESE v1.0 specification passed JSON-example, structural-topic, and independent ACP/ACR/TBE compatibility review.
+
+2026-08-04 — 20 `unittest` cases passed; CLI config/registry smoke tests, JSON validation, source compilation, wheel build, QA, and independent code review passed.
 
