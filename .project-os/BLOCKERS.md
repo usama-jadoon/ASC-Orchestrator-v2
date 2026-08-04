@@ -2,4 +2,4 @@
 
 | Blocker | Why external | Independent work completed | Exact unblock action |
 |---|---|---|---|
-| MSS v1.0 is referenced by ACR/TBE but not defined in this repository. | Requires governance/product contract definition, not implementation inference. | M008 implemented TBE from its declared mission-contract facts without assuming any missing mission vocabulary. | Ratify MSS before standardizing mission intake and mission-type baselines. |
+| No current release blocker. MSS v1.0 was defined and implemented in M009. | — | `docs/MSS_v1.0.md`, `src/asc_orchestrator/mss.py`, CLI, tests, and direct TBE compatibility are complete and validated. | Preserve MSS as the canonical intake contract; future work may extend execution, transport, identity, and cryptographic capabilities. |

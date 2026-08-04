@@ -36,6 +36,7 @@ python -m asc_orchestrator --root . validate-state
 python -m asc_orchestrator --root . resume
 python -m asc_orchestrator --root . checkpoint --mission-id MISSION:example
 python -m asc_orchestrator --root . team-build --mission mission.json --classification classification.json
+python -m asc_orchestrator --root . validate-mission --file mission.json
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -53,6 +54,8 @@ python scripts/validate_docs.py
 ```
 
 TBE is specified in [TBE v1.0](./docs/TBE_v1.0.md). `team-build` accepts an explicit mission-contract JSON object and a repository-classification JSON array, selects only registered ACR specialists, and writes canonical `TEAM.md` under `.project-os/COMPANY/TEAMS/`. The literal `TEAM:<mission-id>:<sequence>` remains inside the manifest; its filesystem directory reversibly encodes `:` as `%3A` for Windows compatibility. Use `--assembled-at <ISO-8601-UTC>` when a reproducible byte-identical manifest is required; otherwise the required assembly timestamp records the current assembly event. Add `--bind-state` only after PESE has been initialized to register the validated manifest as planned mission state; this does not execute agents or start work.
+
+MSS is specified in [MSS v1.0](./docs/MSS_v1.0.md). `validate-mission` accepts an MSS v1.0 mission-specification JSON file, parses it structurally, and reports semantic validation findings for mission type, class, priority, validation gates, authority scope, baseline gates, acceptance criteria, constraints, and extension keys. It returns exit code 0 when the mission validates (with at most warning findings) and exit code 2 for structural or error-severity failures.
 
 ## Documentation
 

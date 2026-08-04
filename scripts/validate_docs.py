@@ -1,4 +1,4 @@
-"""Validate the documentation that defines the shipped PESE and TBE contracts."""
+"""Validate the documentation that defines the shipped PESE, TBE, and MSS contracts."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 PESE = ROOT / "docs" / "PESE_v1.0.md"
 TBE = ROOT / "docs" / "TBE_v1.0.md"
+MSS = ROOT / "docs" / "MSS_v1.0.md"
 
 REQUIRED_PESE_HEADINGS = (
     "## 2. Canonical persistence model",
@@ -36,6 +37,15 @@ REQUIRED_TBE_HEADINGS = (
     "## 15. ESCALATION HIERARCHY",
 )
 
+REQUIRED_MSS_HEADINGS = (
+    "## 2. MISSION VOCABULARY — MISSION TYPES",
+    "## 4. CANONICAL MISSION-INTAKE SCHEMA",
+    "## 5. MISSION-TYPE BASELINE CAPABILITIES",
+    "## 6. VALIDATION-GATE VOCABULARY",
+    "## 7. AUTHORITY-SCOPE VOCABULARY",
+    "## 9. CANONICAL JSON EXAMPLES",
+)
+
 
 def main() -> int:
     """Return nonzero when a canonical contract or CLI invariant is absent."""
@@ -43,9 +53,17 @@ def main() -> int:
     readme = README.read_text(encoding="utf-8")
     pese = PESE.read_text(encoding="utf-8")
     tbe = TBE.read_text(encoding="utf-8")
+    mss = MSS.read_text(encoding="utf-8")
     errors: list[str] = []
 
-    for command in ("state", "resume", "checkpoint", "validate-state", "team-build"):
+    for command in (
+        "state",
+        "resume",
+        "checkpoint",
+        "validate-state",
+        "team-build",
+        "validate-mission",
+    ):
         if f" {command}" not in readme:
             errors.append(f"README does not document the `{command}` command")
     for heading in REQUIRED_PESE_HEADINGS:
@@ -54,10 +72,15 @@ def main() -> int:
     for heading in REQUIRED_TBE_HEADINGS:
         if heading not in tbe:
             errors.append(f"TBE specification is missing: {heading}")
+    for heading in REQUIRED_MSS_HEADINGS:
+        if heading not in mss:
+            errors.append(f"MSS specification is missing: {heading}")
     if "**END OF SPECIFICATION" not in pese:
         errors.append("PESE specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in tbe:
         errors.append("TBE specification does not contain its terminal marker")
+    if "**END OF SPECIFICATION" not in mss:
+        errors.append("MSS specification does not contain its terminal marker")
 
     fences = re.findall(r"```json\n(.*?)\n```", pese, flags=re.DOTALL)
     if not fences:
@@ -68,6 +91,15 @@ def main() -> int:
         except json.JSONDecodeError as error:
             errors.append(f"PESE JSON example {index} is invalid: {error.msg}")
 
+    mss_fences = re.findall(r"```json\n(.*?)\n```", mss, flags=re.DOTALL)
+    if not mss_fences:
+        errors.append("MSS specification has no JSON examples")
+    for index, document in enumerate(mss_fences, start=1):
+        try:
+            json.loads(document)
+        except json.JSONDecodeError as error:
+            errors.append(f"MSS JSON example {index} is invalid: {error.msg}")
+
     if errors:
         print("documentation=FAIL")
         print("\\n".join(errors))
@@ -75,6 +107,8 @@ def main() -> int:
     print("documentation=PASS")
     print(f"pese_json_examples={len(fences)}")
     print(f"tbe_required_headings={len(REQUIRED_TBE_HEADINGS)}")
+    print(f"mss_required_headings={len(REQUIRED_MSS_HEADINGS)}")
+    print(f"mss_json_examples={len(mss_fences)}")
     return 0
 
 

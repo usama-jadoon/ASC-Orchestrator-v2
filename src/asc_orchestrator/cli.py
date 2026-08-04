@@ -53,6 +53,12 @@ def _parser() -> argparse.ArgumentParser:
         "validate-state",
         help="run PESE layout, chain, contract, and repository integrity checks",
     )
+    mission_validate = commands.add_parser(
+        "validate-mission", help="validate an MSS v1.0 mission-specification file"
+    )
+    mission_validate.add_argument(
+        "--file", required=True, help="UTF-8 MSS mission-specification JSON"
+    )
     team_build = commands.add_parser(
         "team-build", help="assemble and persist a deterministic TBE v1.0 TEAM.md"
     )
@@ -169,6 +175,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 outcome = store.validate()
             _emit_pese_outcome(outcome)
             return _pese_exit_code(outcome)
+
+        if args.command == "validate-mission":
+            from .mss import validate_mission_file
+
+            mission_path = Path(args.file)
+            if not mission_path.is_absolute():
+                mission_path = config.repository_root / mission_path
+            result = validate_mission_file(mission_path)
+            for finding in result.findings:
+                print(f"finding={finding.severity}:{finding.code}:{finding.detail}")
+            print(f"mission_id={result.mission_id}")
+            print(f"mission_type={result.mission_type}")
+            print(f"findings={len(result.findings)}")
+            print(f"validation={'PASS' if result.ok else 'FAIL'}")
+            return 0 if result.ok else 2
 
         if args.command == "team-build":
             from .registry import load_registry

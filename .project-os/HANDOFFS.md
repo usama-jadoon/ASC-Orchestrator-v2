@@ -24,3 +24,12 @@ Record only distilled results and links to evidence. Do not paste private reason
 - Validation: 66 unit tests, Ruff, MyPy, formatting, compilation, documentation validation, controlled manifest reproducibility, and independent QA/conformance review passed.
 - Boundary: TBE assembles and persists deterministic team plans only. It does not execute agents, run autonomous workflows, or orchestrate LLMs.
 
+## M009 - Mission Specification Standard v1.0
+
+- Specification: `docs/MSS_v1.0.md` defines the canonical mission vocabulary, immutable intake schema, baseline capabilities, validation gates, authority scope, metadata, examples, compatibility, and implementation gates.
+- Runtime: `src/asc_orchestrator/mss.py` provides `MissionSpec` as a frozen `Mapping[str, Any]`, structural `MSSError` handling, semantic `MissionValidationResult` findings, canonical vocabularies, baseline-gate warnings, extension-key checks, and JSON file loading.
+- CLI: `validate-mission --file <path>` validates MSS JSON relative to the configured repository root and emits findings plus deterministic PASS/FAIL exit status.
+- TBE compatibility: `MissionSpec` is consumed directly by `MissionContract.from_mapping`, `derive_demands`, and `build_team`; no adapter function is required.
+- Validation: 121 full-suite tests, MSS CLI smoke tests, documentation checks, MyPy, Ruff check/format, source compilation, and independent release audit passed. The audit fixed non-mapping input handling in `MissionSpec.from_mapping`.
+- Boundary: MSS is intake and validation only. It does not plan, execute, orchestrate, schedule, transport, sign, or encrypt agent work.
+
