@@ -33,3 +33,12 @@ Record only distilled results and links to evidence. Do not paste private reason
 - Validation: 121 full-suite tests, MSS CLI smoke tests, documentation checks, MyPy, Ruff check/format, source compilation, and independent release audit passed. The audit fixed non-mapping input handling in `MissionSpec.from_mapping`.
 - Boundary: MSS is intake and validation only. It does not plan, execute, orchestrate, schedule, transport, sign, or encrypt agent work.
 
+## M010 - Execution Engine Foundation v1.0
+
+- Specification: `docs/EEF_v1.0.md` defines the canonical execution-lifecycle contract: purpose/scope, architecture and boundary, session state machine, FIFO scheduler semantics, agent-owned transitions, checkpoint/recovery coordination, event-log schema, `org.asc.eef` extension shape, CLI reference, error handling, compatibility, and implementation gates.
+- Runtime: `src/asc_orchestrator/execution.py` implements immutable `ExecutionContext`, deterministic `ExecutionSession` (start, schedule, pause, resume, cancel, complete, status), `ScheduleResult`, `ExecutionStatus`, and the hash-chained `EEFEventJournal` at `.project-os/AUDIT/execution-events.jsonl`. All mutations flow through `PESEStore.update()`; resume uses the scoped `MISSION_INTERRUPT_RECOVERY` custom transition because the PESE legal map has no `INTERRUPTED → ACTIVE` edge.
+- PESE/TBE integration: start fires `MISSION_START` and activates root assignments; cancel/complete fire `MISSION_FINISH`; dependency edges are consumed from the `org.asc.tbe` extension; session status persists under `org.asc.eef`.
+- CLI: seven `execution-*` commands wired through `src/asc_orchestrator/cli.py` with machine-readable outcomes and deterministic exit codes.
+- Validation: full suite (existing PESE/TBE/MSS plus new EEF unit and CLI lifecycle suites), MyPy, Ruff check/format, compilation, documentation validation, and end-to-end lifecycle smoke tests passed; event-journal chain integrity and PESE checkpoint/validation checks verified.
+- Boundary: EEF schedules and dispatches; it does not execute agents, run autonomous workflows, or orchestrate LLMs.
+

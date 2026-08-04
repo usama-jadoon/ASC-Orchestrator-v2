@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .config import ConfigurationError, load_config
+from .execution import EEFError
 from .pese import PESEError, PESEOutcome, PESEStore
 
 
@@ -84,6 +85,28 @@ def _parser() -> argparse.ArgumentParser:
         "--assembled-at",
         help="explicit UTC assembly timestamp for reproducible manifest generation",
     )
+    execution_commands = {
+        "execution-start": "activate a planned mission and dispatch root assignments",
+        "execution-schedule": "compute the deterministic FIFO dispatch decision",
+        "execution-status": "read the current execution lifecycle snapshot",
+        "execution-pause": "interrupt an active mission and its assignments",
+        "execution-resume": "recover an interrupted mission to ACTIVE",
+        "execution-cancel": "terminate an active or interrupted mission",
+        "execution-complete": "advance an active mission to VALIDATING",
+    }
+    for name, help_text in execution_commands.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--mission-id", required=True, help="canonical mission identifier"
+        )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help=(
+                "session actor; PESE authorizes transitions only for mission "
+                "members, so a non-member actor resolves to the first assigned agent"
+            ),
+        )
     return parser
 
 
@@ -116,6 +139,10 @@ def _pese_exit_code(outcome: PESEOutcome) -> int:
         }
         else 2
     )
+
+
+def _eef_exit_code(code: str) -> int:
+    return 0 if code in {"UPDATED", "READY", "NO_WORK"} else 2
 
 
 def _read_json_argument(repository_root: Path, value: str, label: str) -> object:
@@ -238,6 +265,105 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("validation=PASS")
             return 0
 
+        if args.command.startswith("execution-"):
+            from .execution import (
+                ExecutionSession,
+                ExecutionStatus,
+                ScheduleResult,
+                build_context,
+            )
+
+            loaded = PESEStore(config.repository_root).load(actor=args.actor)
+            if loaded.code != "STATE_LOADED":
+                _emit_pese_outcome(loaded)
+                return 2
+            mission = (
+                loaded.data["envelope"]["state"]
+                .get("mission_state", {})
+                .get("missions", {})
+                .get(args.mission_id)
+            )
+            if mission is None:
+                print("outcome=MISSION_NOT_FOUND")
+                print(f"mission_id={args.mission_id}")
+                return 2
+            assigned = tuple(mission.get("assigned_agent_ids", ()))
+            actor = (
+                args.actor
+                if args.actor in assigned
+                else (assigned[0] if assigned else args.actor)
+            )
+            ctx, err = build_context(
+                config.repository_root, config, args.mission_id, actor
+            )
+            if err is not None:
+                _emit_pese_outcome(err)
+                return 2
+            assert ctx is not None
+            session = ExecutionSession(ctx, actor=actor)
+            if args.command == "execution-status":
+                status = session.status()
+                if isinstance(status, ExecutionStatus):
+                    print(f"mission_id={status.mission_id}")
+                    print(f"mission_status={status.mission_status}")
+                    print(f"session_status={status.session_status}")
+                    print("current_milestone_id=" + (status.current_milestone_id or ""))
+                    print(f"active_assignments={status.active_assignments}")
+                    print(f"completed_assignments={status.completed_assignments}")
+                    print(f"blocked_assignments={status.blocked_assignments}")
+                    print(
+                        "next_task_candidates="
+                        + json.dumps(
+                            list(status.next_task_candidates),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    )
+                    print(
+                        "last_event_sequence="
+                        + (
+                            str(status.last_event_sequence)
+                            if status.last_event_sequence is not None
+                            else ""
+                        )
+                    )
+                    return 0
+                _emit_pese_outcome(status)
+                return 2
+            if args.command == "execution-schedule":
+                schedule_result = session.schedule()
+                if not isinstance(schedule_result, ScheduleResult):
+                    _emit_pese_outcome(schedule_result)
+                    return 2
+                print(f"outcome={schedule_result.code}")
+                if schedule_result.assignment_id:
+                    print(f"assignment_id={schedule_result.assignment_id}")
+                if schedule_result.agent_id:
+                    print(f"agent_id={schedule_result.agent_id}")
+                if schedule_result.milestone_id:
+                    print(f"milestone_id={schedule_result.milestone_id}")
+                if schedule_result.pese_revision is not None:
+                    print(f"pese_revision={schedule_result.pese_revision}")
+                print(
+                    "findings="
+                    + json.dumps(
+                        list(schedule_result.findings),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+                return _eef_exit_code(schedule_result.code)
+            methods = {
+                "execution-start": session.start,
+                "execution-pause": session.pause,
+                "execution-resume": session.resume_session,
+                "execution-cancel": session.cancel,
+                "execution-complete": session.complete,
+            }
+            outcome = methods[args.command]()
+            _emit_pese_outcome(outcome)
+            return _eef_exit_code(outcome.code)
+
         from .registry import load_registry
 
         entries = load_registry(config.registry_dir)
@@ -245,6 +371,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         for agent_id in sorted(entries):
             print(agent_id)
         return 0
-    except (ConfigurationError, PESEError, ValueError, OSError) as error:
+    except (ConfigurationError, PESEError, EEFError, ValueError, OSError) as error:
         print(f"error: {error}")
         return 2

@@ -782,7 +782,7 @@ class PESEStore:
                     },
                 ),
             )
-        current = self._computed_milestone(state)
+        current = self._computed_milestone(state, active)
         if current != state["execution_state"].get("current_milestone_id"):
             return self._outcome(
                 "RECOVERY_REQUIRED",
@@ -2619,7 +2619,9 @@ class PESEStore:
             else:
                 destination[key] = value
 
-    def _computed_milestone(self, state: Mapping[str, Any]) -> str | None:
+    def _computed_milestone(
+        self, state: Mapping[str, Any], active_mission_id: str | None = None
+    ) -> str | None:
         assignments = state["execution_state"].get("assignments", {})
         gates = state["validation_state"].get("gates", {})
         for milestone in sorted(
@@ -2632,7 +2634,13 @@ class PESEStore:
                 item
                 for item in assignments.values()
                 if item.get("milestone_id") == milestone.get("id")
+                and (
+                    active_mission_id is None
+                    or item.get("mission_id") == active_mission_id
+                )
             ]
+            if active_mission_id is not None and not relevant:
+                continue
             mission_ids = {item.get("mission_id") for item in relevant}
             required_gates = [
                 gate for gate in gates.values() if gate.get("mission_id") in mission_ids

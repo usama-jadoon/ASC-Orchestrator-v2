@@ -10,3 +10,4 @@
 | P0 | Implement PESE Runtime v1.0 (MISSION-007) | Runtime Engineering | PESE v1.0 contract | COMPLETE | 44 unit tests + repeated process-audit reliability checks + QA/review |
 | P0 | Implement TBE Runtime v1.0 (M008) | Runtime Engineering | TBE v1.0; ACP, ACR, PESE runtime foundations | COMPLETE | 66 unit tests + Ruff + MyPy + docs + independent QA/review |
 | P0 | Define and implement MSS v1.0 | Product / Architecture + Runtime Engineering | PESE contract foundation | COMPLETE | MSS specification, 56 MSS tests, CLI smoke, TBE compatibility, MyPy, Ruff, compilation, and docs validation |
+| P0 | Implement EEF v1.0 (M010) | Runtime Engineering | PESE/TBE/MSS runtime foundations | COMPLETE | EEF specification, full suite (incl. execution + execution CLI tests), event-journal chain, MyPy, Ruff, compilation, and docs validation |

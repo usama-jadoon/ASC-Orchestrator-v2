@@ -1,6 +1,6 @@
 # Project State
 
-Status: M009_MSS_RUNTIME_COMPLETE
+Status: M010_EEF_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete.
 
 ## Verified completed capabilities
 
@@ -29,10 +29,13 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - PESE/TBE compatibility: PESE authorizes canonical Review Matrix and Validator Assignment work, keeps milestones pending until relevant gates are GREEN, and persists TBE metadata under a reverse-DNS extension key.
 - MSS v1.0 runtime: immutable `MissionSpec` Mapping contract, structural parsing, semantic validation findings, canonical vocabularies, baseline-gate recommendations, extension-key checks, file loading, and direct TBE consumption.
 - MSS CLI command: `validate-mission` validates a mission JSON file and emits machine-readable findings with deterministic exit codes.
+- EEF v1.0 runtime: immutable `ExecutionContext`, deterministic `ExecutionSession` lifecycle (start, schedule, pause, resume, cancel, complete), FIFO scheduling with dependency-edge cross-validation, read-only status snapshots, and a hash-chained append-only execution event journal.
+- EEF v1.0 state integration: lifecycle mutations flow exclusively through `PESEStore.update()`; resume uses the scoped `MISSION_INTERRUPT_RECOVERY` custom transition; start/cancel/complete fire PESE mandatory checkpoints; session status persists under the `org.asc.eef` extension key.
+- EEF CLI commands: `execution-start`, `execution-status`, `execution-schedule`, `execution-pause`, `execution-resume`, `execution-cancel`, and `execution-complete` with machine-readable outcomes and deterministic exit codes.
 
 ## Active work
 
-No active implementation work. M009 MSS intake is complete; agent execution, transport, identity, and cryptographic production capabilities remain outside the current release scope.
+No active implementation work. M010 EEF execution-lifecycle management is complete; agent execution, transport, identity, and cryptographic production capabilities remain outside the current release scope.
 
 ## Incomplete capabilities
 
@@ -40,7 +43,7 @@ Agent execution, crypto key management, production audit signing, encrypted tran
 
 ## Release status
 
-M009 implements the canonical MSS mission-intake contract and runtime validation on top of the PESE/TBE foundations. The release is complete for intake and validation scope; execution, transport, identity, and cryptographic capabilities remain intentionally absent.
+M010 implements the canonical EEF v1.0 execution-lifecycle contract on top of the PESE/TBE/MSS foundations. The release is complete for intake, team-assembly, persistent-state, and execution-lifecycle scope; agent execution, transport, identity, and cryptographic capabilities remain intentionally absent.
 
 ## Last verified
 
@@ -51,6 +54,8 @@ M009 implements the canonical MSS mission-intake contract and runtime validation
 2026-08-04 - M008 release gate re-verified after fixing environmental test fixture: 69-case full suite, MyPy, Ruff check+format, source compilation, and documentation validation all passed; PESE `test_resume_plan_uses_ready_assignment_and_requires_checkpoint` now passes deterministically via `GIT_CEILING_DIRECTORIES` isolation that does not modify runtime code.
 
 2026-08-04 - M009 MSS release gate passed: 121-case full suite, MyPy, Ruff check+format, source compilation, documentation validation, CLI smoke tests, TBE direct-consumption tests, and independent release audit passed. The audit found and fixed non-mapping input handling in `MissionSpec.from_mapping`.
+
+2026-08-04 - M010 EEF release gate passed: full suite (existing MSS/PESE/TBE plus new EEF unit and CLI lifecycle suites), MyPy, Ruff check+format, source compilation, documentation validation, CLI lifecycle smoke tests (start → status → schedule → pause → resume → cancel → complete), PESE integrity/checkpoint checks, and event-journal chain verification.
 
 2026-08-04 — M006.5 PESE v1.0 specification passed JSON-example, structural-topic, and independent ACP/ACR/TBE compatibility review.
 
