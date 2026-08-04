@@ -13,3 +13,7 @@
 | 2026-08-04 | PESE runtime reliability | PASS | Three consecutive full-suite passes and repeated eight-process audit-chain stress runs passed on Windows. |
 | 2026-08-04 | Type and lint gates | PASS | `python -m mypy` and `python -m ruff check src tests scripts` passed. |
 | 2026-08-04 | Documentation and runtime integrity | PASS | `python scripts/validate_docs.py`, source compilation, temporary-Git `state`/`validate-state`/`resume` lifecycle, and independent QA/conformance review passed. |
+| 2026-08-04 | TBE runtime unit suite | PASS | 66 `unittest` cases passed, including deterministic assembly, ownership, schema-compatible dependencies, resource serialization, PESE review/validator authorization, and gate-aware milestones. |
+| 2026-08-04 | TBE static and documentation gates | PASS | `python -m mypy`, `python -m ruff check src tests scripts`, `python -m ruff format --check src tests scripts`, compilation, and `python scripts/validate_docs.py` passed. |
+| 2026-08-04 | TBE cross-runtime compatibility | PASS | Independent QA and conformance review verified ACP/ACR contracts, PESE binding/authorization, gate-aware completion, controlled manifest reproducibility, and `validate-state`. |
+| 2026-08-04 | PESE resume test environmental isolation | PASS | Test fixture now sets and restores `GIT_CEILING_DIRECTORIES` so the default Windows temp root is observed as non-Git, while explicit `git init` test worktrees continue to discover a freshly created `.git`. All 25 PESE cases and the 69-case full suite pass. |

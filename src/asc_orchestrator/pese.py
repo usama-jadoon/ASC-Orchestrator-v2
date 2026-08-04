@@ -28,6 +28,10 @@ MISSION_RE = re.compile(r"^MISSION:[A-Za-z0-9._-]+$")
 ASSIGNMENT_RE = re.compile(r"^ASSIGNMENT:[A-Za-z0-9._-]+$")
 ID_FILE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 CHECKPOINT_RE = re.compile(r"^CP-[A-Za-z0-9._-]+-(\d{8}T\d{9}Z)-(\d{4,})$")
+# The canonical v1.0 examples use names such as ``org.asc.tbe`` and
+# ``org.asc.lease_seconds``: a reverse-DNS namespace followed by a
+# producer-controlled suffix.  The suffix intentionally permits ``_``.
+EXTENSION_KEY_RE = re.compile(r"^[a-z0-9-]+(?:\.[a-z0-9_-]+)+$", re.IGNORECASE)
 
 REQUIRED_DIRS = (
     "state/history",
@@ -1273,6 +1277,18 @@ class PESEStore:
             raise PESEError("STATE_CHAIN_INVALID", "state/file hash mismatch")
         self._validate_state_shape(item["state"])
 
+    @staticmethod
+    def _validate_extensions(extensions: Any) -> None:
+        """Require the v1.0 extension namespace without interpreting its data."""
+        if not isinstance(extensions, Mapping) or any(
+            not isinstance(key, str) or not EXTENSION_KEY_RE.fullmatch(key)
+            for key in extensions
+        ):
+            raise PESEError(
+                "SCHEMA_INVALID",
+                "extensions keys must use reverse-DNS names",
+            )
+
     def _validate_state_shape(self, state: Mapping[str, Any]) -> None:
         allowed = {
             "schema_version",
@@ -1294,6 +1310,8 @@ class PESEStore:
             raise PESEError(
                 "SCHEMA_INVALID", "state must contain exactly PESE top-level components"
             )
+        if "extensions" in state:
+            self._validate_extensions(state["extensions"])
         version = state.get("schema_version")
         if not isinstance(version, str) or not re.fullmatch(r"1\.\d+\.\d+", version):
             raise PESEError(
@@ -1918,6 +1936,7 @@ class PESEStore:
                 or not isinstance(item.get("expected_revision"), int)
             ):
                 raise PESEError("LOCK_INVALID", "invalid lock object shape")
+            self._validate_extensions(item["extensions"])
             if item.get("file_sha256") != canonical_sha256(item, "file_sha256"):
                 raise PESEError("LOCK_INVALID", "lock hash mismatch")
             expires = datetime.fromisoformat(
@@ -2530,13 +2549,67 @@ class PESEStore:
         ):
             raise PESEError("UNAUTHORIZED", "actor is absent from TBE manifest")
         ownership = manifest[positions[3] : positions[5]]
-        if assignment_id is not None and not re.search(
-            rf"(?m)^\|[^\n]*{re.escape(assignment_id)}[^\n]*\|\s*{re.escape(actor)}\s*\|",
-            ownership,
-        ):
-            raise PESEError(
-                "UNAUTHORIZED", "manifest does not assign ownership of this assignment"
+        if assignment_id is not None:
+            owns_assignment = bool(
+                re.search(
+                    rf"(?m)^\|[^\n]*{re.escape(assignment_id)}[^\n]*\|\s*{re.escape(actor)}\s*\|",
+                    ownership,
+                )
             )
+            review = manifest[positions[5] : positions[6]]
+            validator = manifest[positions[6] : positions[7]]
+            scheduled_owner = self._manifest_scheduled_assignment_owner(
+                assignment_id, review, validator
+            )
+            if not owns_assignment and scheduled_owner != actor:
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    "manifest does not assign ownership of this assignment",
+                )
+
+    @staticmethod
+    def _manifest_scheduled_assignment_owner(
+        assignment_id: str, review_section: str, validator_section: str
+    ) -> str | None:
+        """Resolve TBE's canonical review/validation control assignments.
+
+        TBE deliberately records repository ownership only for builders.  Its
+        Review Matrix and Validator Assignment sections authorize the derived
+        PESE control assignments instead, so they must not be treated as file
+        ownership.  This parser mirrors TBE's deterministic ID derivation and
+        accepts only exact rows from those canonical sections.
+        """
+
+        def rows(section: str) -> Iterable[list[str]]:
+            for line in section.splitlines():
+                if not line.lstrip().startswith("|"):
+                    continue
+                cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+                if not cells or all(
+                    re.fullmatch(r":?-{3,}:?", cell) is not None for cell in cells
+                ):
+                    continue
+                yield cells
+
+        def derived(kind: str, label: str) -> str | None:
+            token = label.removeprefix("ASSIGNMENT:")
+            safe = "".join(
+                character
+                if character.isascii() and (character.isalnum() or character in "._-")
+                else "-"
+                for character in token
+            ).strip("-")
+            return f"ASSIGNMENT:{kind}-{safe}" if safe else None
+
+        for row in rows(review_section):
+            # Deliverable type, owning builder, assigned reviewer, rotation.
+            if len(row) >= 3 and derived("review", row[0]) == assignment_id:
+                return row[2]
+        for row in rows(validator_section):
+            # Gate, validator, fallback validator.
+            if len(row) >= 2 and derived("validate", row[0]) == assignment_id:
+                return row[1]
+        return None
 
     @staticmethod
     def _deep_merge(destination: dict[str, Any], update: Mapping[str, Any]) -> None:
@@ -2548,6 +2621,7 @@ class PESEStore:
 
     def _computed_milestone(self, state: Mapping[str, Any]) -> str | None:
         assignments = state["execution_state"].get("assignments", {})
+        gates = state["validation_state"].get("gates", {})
         for milestone in sorted(
             state["execution_state"].get("milestones", []),
             key=lambda item: item.get("order", 0),
@@ -2559,8 +2633,14 @@ class PESEStore:
                 for item in assignments.values()
                 if item.get("milestone_id") == milestone.get("id")
             ]
-            if not relevant or not all(
-                item.get("status") == "COMPLETED" for item in relevant
+            mission_ids = {item.get("mission_id") for item in relevant}
+            required_gates = [
+                gate for gate in gates.values() if gate.get("mission_id") in mission_ids
+            ]
+            if (
+                not relevant
+                or not all(item.get("status") == "COMPLETED" for item in relevant)
+                or not all(gate.get("status") == "GREEN" for gate in required_gates)
             ):
                 return milestone.get("id")
         return None

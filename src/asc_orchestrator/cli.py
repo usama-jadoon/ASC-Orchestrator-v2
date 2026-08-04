@@ -53,6 +53,31 @@ def _parser() -> argparse.ArgumentParser:
         "validate-state",
         help="run PESE layout, chain, contract, and repository integrity checks",
     )
+    team_build = commands.add_parser(
+        "team-build", help="assemble and persist a deterministic TBE v1.0 TEAM.md"
+    )
+    team_build.add_argument(
+        "--mission", required=True, help="UTF-8 mission-contract JSON"
+    )
+    team_build.add_argument(
+        "--classification",
+        required=True,
+        help="UTF-8 repository-classification JSON array",
+    )
+    team_build.add_argument(
+        "--bind-state",
+        action="store_true",
+        help="register the validated manifest as PESE planned mission state",
+    )
+    team_build.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used when binding the manifest to PESE",
+    )
+    team_build.add_argument(
+        "--assembled-at",
+        help="explicit UTC assembly timestamp for reproducible manifest generation",
+    )
     return parser
 
 
@@ -85,6 +110,16 @@ def _pese_exit_code(outcome: PESEOutcome) -> int:
         }
         else 2
     )
+
+
+def _read_json_argument(repository_root: Path, value: str, label: str) -> object:
+    path = Path(value)
+    if not path.is_absolute():
+        path = repository_root / path
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid {label} JSON: {error}") from error
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -134,6 +169,53 @@ def main(argv: Sequence[str] | None = None) -> int:
                 outcome = store.validate()
             _emit_pese_outcome(outcome)
             return _pese_exit_code(outcome)
+
+        if args.command == "team-build":
+            from .registry import load_registry
+            from .tbe import (
+                assemble_team,
+                bind_manifest_to_pese,
+                team_manifest_relative_path,
+                validate_manifest,
+            )
+
+            mission = _read_json_argument(
+                config.repository_root, args.mission, "mission contract"
+            )
+            classification = _read_json_argument(
+                config.repository_root, args.classification, "classification"
+            )
+            if not isinstance(mission, dict) or not isinstance(classification, list):
+                raise ValueError(
+                    "mission contract must be an object and classification must be an array"
+                )
+            registry = load_registry(config.registry_dir)
+            manifest = assemble_team(
+                mission,
+                classification,
+                registry,
+                assembled_at=args.assembled_at,
+            )
+            validate_manifest(manifest, registry=registry)
+            manifest_ref = team_manifest_relative_path(manifest)
+            output = config.repository_root / manifest_ref
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(manifest.to_markdown(), encoding="utf-8", newline="\n")
+            if args.bind_state:
+                state_result = bind_manifest_to_pese(
+                    manifest,
+                    PESEStore(config.repository_root),
+                    manifest_ref=manifest_ref,
+                    actor=args.actor,
+                    registry=registry,
+                )
+                if not state_result.ok:
+                    _emit_pese_outcome(state_result)
+                    return 2
+            print(f"team_id={manifest.team_id}")
+            print(f"manifest_path={output.relative_to(config.repository_root)}")
+            print("validation=PASS")
+            return 0
 
         from .registry import load_registry
 

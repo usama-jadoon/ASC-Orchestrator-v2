@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
-from asc_orchestrator.pese import PESEStore, canonical_json, canonical_sha256
+from asc_orchestrator.pese import PESEError, PESEStore, canonical_json, canonical_sha256
 
 ACTOR = "AGENT:orchestrator:test"
 MISSION = "MISSION:007"
@@ -89,8 +89,15 @@ def state_with_work(store: PESEStore) -> dict:
 
 class PESEStoreTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Default tempfile roots on Windows live under the user's home,
+        # which may itself be a Git worktree. Cap the ceiling so PESE's
+        # authoritative repository check observes the temp dir as a
+        # non-Git root while still allowing the explicit git-init tests
+        # below to discover a freshly created `.git` inside `self.root`.
+        self._previous_ceiling = os.environ.get("GIT_CEILING_DIRECTORIES")
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        os.environ["GIT_CEILING_DIRECTORIES"] = str(self.root.parent)
         self.store = PESEStore(self.root)
         (self.root / "team.md").write_text(
             f"""## TEAM IDENTITY
@@ -141,6 +148,10 @@ Manifest Version: 1
         )
 
     def tearDown(self) -> None:
+        if self._previous_ceiling is None:
+            os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+        else:
+            os.environ["GIT_CEILING_DIRECTORIES"] = self._previous_ceiling
         self.temp.cleanup()
 
     def update(self, kind: str, subject: str, old: str, new: str, mutator):
@@ -418,6 +429,181 @@ text
             ].__setitem__("status", "IN_PROGRESS"),
         )
         self.assertEqual(outcome.code, "UPDATED")
+
+    def test_tbe_scheduled_review_and_validation_assignments_are_authorized(
+        self,
+    ) -> None:
+        """TBE control work is authorized by its own manifest sections, not files."""
+        root = self.root / "scheduled-control-work"
+        root.mkdir()
+        store = PESEStore(root)
+        reviewer = "AGENT:reviewer:1"
+        validator = "AGENT:validator:1"
+        attacker = "AGENT:attacker:1"
+        (root / "team.md").write_text(
+            f"""## TEAM IDENTITY
+Manifest Version: 1
+## PROJECT CLASSIFICATION
+| Root | Type |
+| --- | --- |
+| . | Python |
+## MEMBERSHIP TABLE
+| Agent ID | Role | Department | ACR registry reference |
+| --- | --- | --- | --- |
+| {ACTOR} | Builder | ENGINEERING | docs/ACR_v1.0.md |
+| {reviewer} | Reviewer | QUALITY | docs/ACR_v1.0.md |
+| {validator} | Validator | QUALITY | docs/ACR_v1.0.md |
+| {attacker} | Reviewer | QUALITY | docs/ACR_v1.0.md |
+## OWNERSHIP MATRIX
+| Assignment | Mutable area or artifact | Owner |
+| --- | --- | --- |
+| ASSIGNMENT:build | src/ | {ACTOR} |
+## EXECUTION GRAPH
+| Agent | Phase |
+| --- | --- |
+| {ACTOR} | 1 |
+## REVIEW MATRIX
+| Deliverable type | Owning builder | Assigned reviewer | Rotation state |
+| --- | --- | --- | --- |
+| ASSIGNMENT:build | {ACTOR} | {reviewer} | R0 |
+## VALIDATOR ASSIGNMENT
+| Gate | Validator | Fallback validator |
+| --- | --- | --- |
+| functional | {validator} | - |
+## ESCALATION ROUTES
+| Level | Destination |
+| --- | --- |
+| 1 | {ACTOR} |
+## CAPACITY RECORD
+| Agent | Capacity |
+| --- | --- |
+| {ACTOR} | 1 |
+## ACTIVE POLICIES
+| Policy | Evidence |
+| --- | --- |
+| default | docs/TBE_v1.0.md |
+""",
+            encoding="utf-8",
+            newline="\n",
+        )
+        state = state_with_work(store)
+        state["mission_state"]["missions"][MISSION]["assigned_agent_ids"] = [
+            ACTOR,
+            reviewer,
+            validator,
+            attacker,
+        ]
+
+        def assignment(agent_id: str) -> dict[str, object]:
+            return {
+                "mission_id": MISSION,
+                "milestone_id": "IMPLEMENT",
+                "status": "PENDING",
+                "assigned_agent_id": agent_id,
+                "manifest_version": 1,
+                "depends_on": [],
+                "input_refs": [],
+                "output_refs": [],
+                "started_at": None,
+                "completed_at": None,
+                "last_checkpoint_id": None,
+                "position_id": "POSITION:control",
+                "replacement_count": 0,
+                "replacement_lineage": [],
+                "interruption": None,
+            }
+
+        review_assignment = "ASSIGNMENT:review-build"
+        validator_assignment = "ASSIGNMENT:validate-functional"
+        state["execution_state"]["assignments"] = {
+            review_assignment: assignment(reviewer),
+            validator_assignment: assignment(validator),
+            "ASSIGNMENT:review-attacker": assignment(attacker),
+        }
+        state["execution_state"]["next_task_candidates"] = sorted(
+            state["execution_state"]["assignments"]
+        )
+        template = state["agent_state"]["agents"][ACTOR]
+        state["agent_state"]["agents"] = {
+            agent_id: {
+                **template,
+                "agent_id": agent_id,
+                "assignment_id": next(
+                    (
+                        assignment_id
+                        for assignment_id, item in state["execution_state"][
+                            "assignments"
+                        ].items()
+                        if item["assigned_agent_id"] == agent_id
+                    ),
+                    None,
+                ),
+            }
+            for agent_id in (ACTOR, reviewer, validator, attacker)
+        }
+        self.assertEqual(store.initialize(ACTOR, state).code, "INITIALIZED")
+
+        def ready(assignment_id: str):
+            return lambda target: target["execution_state"]["assignments"][
+                assignment_id
+            ].__setitem__("status", "READY")
+
+        review_ready = store.update(
+            expected_revision=1,
+            actor=reviewer,
+            transition_type="ASSIGNMENT_STATUS",
+            subject=review_assignment,
+            from_value="PENDING",
+            to_value="READY",
+            mutate=ready(review_assignment),
+        )
+        self.assertEqual(review_ready.code, "UPDATED")
+        validator_ready = store.update(
+            expected_revision=2,
+            actor=validator,
+            transition_type="ASSIGNMENT_STATUS",
+            subject=validator_assignment,
+            from_value="PENDING",
+            to_value="READY",
+            mutate=ready(validator_assignment),
+        )
+        self.assertEqual(validator_ready.code, "UPDATED")
+        attacker_outcome = store.update(
+            expected_revision=3,
+            actor=attacker,
+            transition_type="ASSIGNMENT_STATUS",
+            subject="ASSIGNMENT:review-attacker",
+            from_value="PENDING",
+            to_value="READY",
+            mutate=ready("ASSIGNMENT:review-attacker"),
+        )
+        self.assertEqual(attacker_outcome.code, "UNAUTHORIZED")
+
+    def test_computed_milestone_requires_mission_gates_to_be_green(self) -> None:
+        state = state_with_work(self.store)
+        state["execution_state"]["assignments"][ASSIGNMENT]["status"] = "COMPLETED"
+        state["validation_state"]["gates"] = {
+            "GATE:qa": {
+                "mission_id": MISSION,
+                "status": "PENDING",
+                "validator_agent_id": ACTOR,
+                "manifest_version": 1,
+                "criteria_refs": [],
+                "artifact_ids": [],
+                "last_checkpoint_id": None,
+                "verdict_at": None,
+            }
+        }
+        self.assertEqual(self.store._computed_milestone(state), "IMPLEMENT")
+        state["validation_state"]["gates"]["GATE:qa"]["status"] = "GREEN"
+        self.assertIsNone(self.store._computed_milestone(state))
+
+    def test_extensions_require_reverse_dns_keys(self) -> None:
+        store = PESEStore(self.root / "extensions")
+        state = state_with_work(store)
+        state["extensions"] = {"tbe": {}}
+        with self.assertRaisesRegex(PESEError, "reverse-DNS"):
+            store.initialize(ACTOR, state)
 
     def test_git_repository_without_origin_has_local_identity(self) -> None:
         git_root = self.root / "git-no-origin"

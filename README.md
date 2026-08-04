@@ -15,6 +15,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - Python runtime foundation for ACP v1.0 and ACR v1.0 validation
 - Canonical PESE v1.0 specification for persistent mission, execution, validation, risk, agent, repository, and checkpoint state
 - PESE v1.0 runtime for atomic state history, checkpoints, integrity validation, deterministic resume, locking, recovery, and migration records
+- TBE v1.0 deterministic assembly runtime for specialist selection, ownership, dependency graphs, validation interfaces, and canonical team manifests
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -34,6 +35,7 @@ python -m asc_orchestrator --root . state
 python -m asc_orchestrator --root . validate-state
 python -m asc_orchestrator --root . resume
 python -m asc_orchestrator --root . checkpoint --mission-id MISSION:example
+python -m asc_orchestrator --root . team-build --mission mission.json --classification classification.json
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -49,6 +51,8 @@ python -m ruff check src tests scripts
 python -m ruff format --check src tests scripts
 python scripts/validate_docs.py
 ```
+
+TBE is specified in [TBE v1.0](./docs/TBE_v1.0.md). `team-build` accepts an explicit mission-contract JSON object and a repository-classification JSON array, selects only registered ACR specialists, and writes canonical `TEAM.md` under `.project-os/COMPANY/TEAMS/`. The literal `TEAM:<mission-id>:<sequence>` remains inside the manifest; its filesystem directory reversibly encodes `:` as `%3A` for Windows compatibility. Use `--assembled-at <ISO-8601-UTC>` when a reproducible byte-identical manifest is required; otherwise the required assembly timestamp records the current assembly event. Add `--bind-state` only after PESE has been initialized to register the validated manifest as planned mission state; this does not execute agents or start work.
 
 ## Documentation
 
