@@ -1,6 +1,6 @@
 # Project State
 
-Status: M010_EEF_COMPLETE
+Status: M011_CKS_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger.
 
 ## Verified completed capabilities
 
@@ -32,18 +32,20 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - EEF v1.0 runtime: immutable `ExecutionContext`, deterministic `ExecutionSession` lifecycle (start, schedule, pause, resume, cancel, complete), FIFO scheduling with dependency-edge cross-validation, read-only status snapshots, and a hash-chained append-only execution event journal.
 - EEF v1.0 state integration: lifecycle mutations flow exclusively through `PESEStore.update()`; resume uses the scoped `MISSION_INTERRUPT_RECOVERY` custom transition; start/cancel/complete fire PESE mandatory checkpoints; session status persists under the `org.asc.eef` extension key.
 - EEF CLI commands: `execution-start`, `execution-status`, `execution-schedule`, `execution-pause`, `execution-resume`, `execution-cancel`, and `execution-complete` with machine-readable outcomes and deterministic exit codes.
+- CKS v1.0 runtime: deterministic, stdlib-only HMAC-SHA256 key store with immutable key records, atomic writes, status journals, rotation and revocation, constant-time verification, and a hash-chained per-key signing ledger.
+- CKS CLI commands: `key-create`, `key-list`, `key-sign`, `key-verify`, `key-rotate`, `key-revoke`, and `key-validate` with machine-readable outcomes and deterministic exit codes; keys persist under `.project-os/KEYS/` and never read or mutate PESE/ACP/TBE/MSS/EEF state.
 
 ## Active work
 
-No active implementation work. M010 EEF execution-lifecycle management is complete; agent execution, transport, identity, and cryptographic production capabilities remain outside the current release scope.
+No active implementation work. M011 CKS cryptographic key and audit-signing management is complete; agent execution, transport, and autonomous workflow scheduling remain outside the current release scope.
 
 ## Incomplete capabilities
 
-Agent execution, crypto key management, production audit signing, encrypted transport, and autonomous workflow scheduling are not yet implemented.
+Agent execution, encrypted transport, and autonomous workflow scheduling are not yet implemented.
 
 ## Release status
 
-M010 implements the canonical EEF v1.0 execution-lifecycle contract on top of the PESE/TBE/MSS foundations. The release is complete for intake, team-assembly, persistent-state, and execution-lifecycle scope; agent execution, transport, identity, and cryptographic capabilities remain intentionally absent.
+M011 implements the canonical CKS v1.0 cryptographic key and audit-signing contract on top of the PESE/TBE/MSS/EEF foundations. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, and cryptographic-signing scope; agent execution, transport, and autonomous workflow scheduling remain intentionally absent.
 
 ## Last verified
 
@@ -56,6 +58,8 @@ M010 implements the canonical EEF v1.0 execution-lifecycle contract on top of th
 2026-08-04 - M009 MSS release gate passed: 121-case full suite, MyPy, Ruff check+format, source compilation, documentation validation, CLI smoke tests, TBE direct-consumption tests, and independent release audit passed. The audit found and fixed non-mapping input handling in `MissionSpec.from_mapping`.
 
 2026-08-04 - M010 EEF release gate passed: full suite (existing MSS/PESE/TBE plus new EEF unit and CLI lifecycle suites), MyPy, Ruff check+format, source compilation, documentation validation, CLI lifecycle smoke tests (start → status → schedule → pause → resume → cancel → complete), PESE integrity/checkpoint checks, and event-journal chain verification.
+
+2026-08-05 - M011 CKS release gate passed: full suite (existing PESE/TBE/MSS/EEF plus new CKS unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation, CLI key lifecycle smoke tests (create → list → sign → verify → rotate → revoke → validate), and signing-ledger chain integrity with tamper detection.
 
 2026-08-04 — M006.5 PESE v1.0 specification passed JSON-example, structural-topic, and independent ACP/ACR/TBE compatibility review.
 

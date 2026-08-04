@@ -17,6 +17,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - PESE v1.0 runtime for atomic state history, checkpoints, integrity validation, deterministic resume, locking, recovery, and migration records
 - TBE v1.0 deterministic assembly runtime for specialist selection, ownership, dependency graphs, validation interfaces, and canonical team manifests
 - EEF v1.0 execution runtime for deterministic mission lifecycle management (start, schedule, pause, resume, cancel, complete) with a hash-chained execution event journal
+- CKS v1.0 cryptographic key service for HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger for production audit attestation
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -45,6 +46,13 @@ python -m asc_orchestrator --root . execution-pause --mission-id MISSION:example
 python -m asc_orchestrator --root . execution-resume --mission-id MISSION:example
 python -m asc_orchestrator --root . execution-cancel --mission-id MISSION:example
 python -m asc_orchestrator --root . execution-complete --mission-id MISSION:example
+python -m asc_orchestrator --root . key-create --actor AGENT:orchestrator:local --purpose "audit signing"
+python -m asc_orchestrator --root . key-list
+python -m asc_orchestrator --root . key-sign --key-id KEY-... --file checkpoint.json
+python -m asc_orchestrator --root . key-verify --key-id KEY-... --file checkpoint.json --signature <hex>
+python -m asc_orchestrator --root . key-rotate --key-id KEY-... --actor AGENT:orchestrator:local
+python -m asc_orchestrator --root . key-revoke --key-id KEY-... --actor AGENT:orchestrator:local
+python -m asc_orchestrator --root . key-validate
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -66,6 +74,8 @@ TBE is specified in [TBE v1.0](./docs/TBE_v1.0.md). `team-build` accepts an expl
 MSS is specified in [MSS v1.0](./docs/MSS_v1.0.md). `validate-mission` accepts an MSS v1.0 mission-specification JSON file, parses it structurally, and reports semantic validation findings for mission type, class, priority, validation gates, authority scope, baseline gates, acceptance criteria, constraints, and extension keys. It returns exit code 0 when the mission validates (with at most warning findings) and exit code 2 for structural or error-severity failures.
 
 EEF is specified in [EEF v1.0](./docs/EEF_v1.0.md). The execution commands drive a PESE-bound, TBE-assigned mission through its lifecycle: `execution-start` activates a planned mission and its root assignments, `execution-schedule` computes the deterministic FIFO dispatch decision, `execution-pause`/`execution-resume` interrupt and recover a mission, `execution-cancel` terminates it, `execution-complete` advances it to VALIDATING, and `execution-status` reads the lifecycle snapshot. All state changes flow through PESE's audited transition API, and every event is appended to the hash-chained journal at `.project-os/AUDIT/execution-events.jsonl`. EEF schedules and dispatches work; it does not execute agents.
+
+CKS is specified in [CKS v1.0](./docs/CKS_v1.0.md). The `key-*` commands manage a deterministic, stdlib-only HMAC-SHA256 key lifecycle: `key-create` generates a 256-bit key and persists an immutable record, `key-rotate` retires an active key and creates its replacement, `key-revoke` permanently disables an active key, `key-sign` produces an HMAC-SHA256 signature and records it in a hash-chained signing ledger, `key-verify` performs constant-time signature verification, `key-list` enumerates all keys, and `key-validate` checks key record integrity, fingerprints, and ledger chains. Keys live under `.project-os/KEYS/` and never read or mutate PESE, ACP, TBE, MSS, or EEF state.
 
 ## Documentation
 

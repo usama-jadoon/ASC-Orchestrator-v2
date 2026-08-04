@@ -42,3 +42,12 @@ Record only distilled results and links to evidence. Do not paste private reason
 - Validation: full suite (existing PESE/TBE/MSS plus new EEF unit and CLI lifecycle suites), MyPy, Ruff check/format, compilation, documentation validation, and end-to-end lifecycle smoke tests passed; event-journal chain integrity and PESE checkpoint/validation checks verified.
 - Boundary: EEF schedules and dispatches; it does not execute agents, run autonomous workflows, or orchestrate LLMs.
 
+## M011 - Cryptographic Key Service v1.0
+
+- Specification: `docs/CKS_v1.0.md` defines the canonical cryptographic key and audit-signing contract: architecture and boundary, key types and records, lifecycle (ACTIVE → ROTATED/REVOKED), signing and verification, signing ledger, on-disk layout, CLI reference, error handling, compatibility, and implementation gates.
+- Runtime: `src/asc_orchestrator/keys.py` implements the stdlib-only `KeyStore` over `.project-os/KEYS/{keys,status,signatures}/`. Key records are immutable (written once via atomic replace); status changes append to per-key JSONL journals; signatures append to a per-key hash-chained JSONL ledger with `previous_hash` linkage, fsync, and process-safe locking.
+- Cryptography: HMAC-SHA256 signatures (`hmac.new(material_hex.encode(), payload, "sha256")`), SHA-256 fingerprints over the hex-encoded material, and constant-time verification via `hmac.compare_digest`. `key-validate` verifies record integrity, fingerprints, and ledger chains.
+- CLI: seven `key-*` commands wired through `src/asc_orchestrator/cli.py` with machine-readable outcomes and deterministic exit codes. Keys never read or mutate PESE, ACP, TBE, MSS, or EEF state.
+- Validation: full 189-case suite, MyPy, Ruff check/format, compilation, documentation validation, and CLI key-lifecycle smoke tests passed; signing-ledger chain integrity and tamper detection verified.
+- Boundary: CKS provides symmetric identity and audit signing only. It does not implement encrypted transport, asymmetric PKI, agent execution, or autonomous workflow scheduling.
+

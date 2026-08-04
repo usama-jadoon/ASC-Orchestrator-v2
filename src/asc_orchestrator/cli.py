@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import ConfigurationError, load_config
 from .execution import EEFError
+from .keys import CKSError
 from .pese import PESEError, PESEOutcome, PESEStore
 
 
@@ -107,6 +108,51 @@ def _parser() -> argparse.ArgumentParser:
                 "members, so a non-member actor resolves to the first assigned agent"
             ),
         )
+    key_writer_commands = {
+        "key-create": "generate a new CKS HMAC-SHA256 key",
+        "key-rotate": "rotate an active CKS key to a new active key",
+        "key-revoke": "revoke an active CKS key",
+    }
+    for name, help_text in key_writer_commands.items():
+        command = commands.add_parser(name, help=help_text)
+        if name in {"key-rotate", "key-revoke"}:
+            command.add_argument(
+                "--key-id", required=True, help="canonical key identifier"
+            )
+        if name in {"key-create", "key-rotate"}:
+            command.add_argument("--purpose", help="human-readable role for the key")
+        if name == "key-revoke":
+            command.add_argument(
+                "--reason", default="REVOCATION", help="revocation reason"
+            )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="actor performing the key operation",
+        )
+    commands.add_parser("key-list", help="list all CKS keys sorted by creation time")
+    key_sign = commands.add_parser(
+        "key-sign", help="sign a file with a CKS key and record the signature"
+    )
+    key_sign.add_argument("--key-id", required=True, help="canonical key identifier")
+    key_sign.add_argument("--file", required=True, help="UTF-8 or binary file to sign")
+    key_sign.add_argument("--purpose", help="optional signing context")
+    key_sign.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="signing actor recorded in the ledger",
+    )
+    key_verify = commands.add_parser(
+        "key-verify", help="verify a CKS signature over a file (read-only)"
+    )
+    key_verify.add_argument("--key-id", required=True, help="canonical key identifier")
+    key_verify.add_argument(
+        "--file", required=True, help="file whose signature is being verified"
+    )
+    key_verify.add_argument("--signature", required=True, help="64-char hex signature")
+    commands.add_parser(
+        "key-validate", help="verify CKS key records, fingerprints, and ledgers"
+    )
     return parser
 
 
@@ -364,6 +410,62 @@ def main(argv: Sequence[str] | None = None) -> int:
             _emit_pese_outcome(outcome)
             return _eef_exit_code(outcome.code)
 
+        if args.command.startswith("key-"):
+            from .keys import KeyStore
+
+            key_store = KeyStore(config.repository_root)
+            if args.command == "key-create":
+                record = key_store.create_key(
+                    args.actor, purpose=getattr(args, "purpose", None)
+                )
+                print(f"key_id={record.key_id}")
+                return 0
+            if args.command == "key-list":
+                records = key_store.list_keys()
+                print(f"key_count={len(records)}")
+                for record in records:
+                    print(record.key_id)
+                return 0
+            if args.command == "key-validate":
+                valid = key_store.validate()
+                print(f"outcome={'VALID' if valid else 'INVALID'}")
+                return 0 if valid else 2
+            if args.command == "key-sign":
+                payload_path = Path(args.file)
+                if not payload_path.is_absolute():
+                    payload_path = config.repository_root / payload_path
+                signature_record = key_store.sign(
+                    args.key_id,
+                    payload_path.read_bytes(),
+                    args.actor,
+                    purpose=getattr(args, "purpose", None),
+                )
+                print(f"signature={signature_record.signature_hex}")
+                return 0
+            if args.command == "key-verify":
+                payload_path = Path(args.file)
+                if not payload_path.is_absolute():
+                    payload_path = config.repository_root / payload_path
+                valid = key_store.verify(
+                    args.key_id, payload_path.read_bytes(), args.signature
+                )
+                print(f"valid={'true' if valid else 'false'}")
+                return 0
+            if args.command == "key-rotate":
+                record = key_store.rotate(
+                    args.actor, args.key_id, purpose=getattr(args, "purpose", None)
+                )
+                print(f"new_key_id={record.key_id}")
+                return 0
+            key_store.revoke(
+                args.actor,
+                args.key_id,
+                reason=getattr(args, "reason", "REVOCATION"),
+            )
+            print(f"key_id={args.key_id}")
+            print("status=REVOKED")
+            return 0
+
         from .registry import load_registry
 
         entries = load_registry(config.registry_dir)
@@ -371,6 +473,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         for agent_id in sorted(entries):
             print(agent_id)
         return 0
-    except (ConfigurationError, PESEError, EEFError, ValueError, OSError) as error:
+    except (
+        ConfigurationError,
+        PESEError,
+        EEFError,
+        CKSError,
+        ValueError,
+        OSError,
+    ) as error:
         print(f"error: {error}")
         return 2

@@ -2,4 +2,4 @@
 
 | Blocker | Why external | Independent work completed | Exact unblock action |
 |---|---|---|---|
-| No current release blocker. EEF v1.0 was defined and implemented in M010. | — | `docs/EEF_v1.0.md`, `src/asc_orchestrator/execution.py`, seven `execution-*` CLI commands, EEF unit and CLI lifecycle suites, and the hash-chained execution event journal are complete and validated. | Preserve EEF as the canonical execution-lifecycle contract; future work may extend agent execution, transport, identity, and cryptographic capabilities. |
+| No current release blocker. CKS v1.0 was defined and implemented in M011. | — | `docs/CKS_v1.0.md`, `src/asc_orchestrator/keys.py`, seven `key-*` CLI commands, CKS unit and CLI suites, and the hash-chained signing ledger are complete and validated. | Preserve CKS as the canonical cryptographic key and audit-signing contract; future work may extend agent execution, encrypted transport, and autonomous workflow scheduling. |
