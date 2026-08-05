@@ -10,6 +10,7 @@ from pathlib import Path
 from .aex import AEXError
 from .config import ConfigurationError, load_config
 from .execution import EEFError
+from .health import AHPError
 from .keys import CKSError
 from .pese import PESEError, PESEOutcome, PESEStore
 
@@ -230,6 +231,55 @@ def _parser() -> argparse.ArgumentParser:
         "--actor",
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
+    )
+    health_heartbeat = commands.add_parser(
+        "health-heartbeat", help="record a liveness heartbeat for an agent"
+    )
+    health_heartbeat.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    health_heartbeat.add_argument(
+        "--mission-id", help="optional canonical mission identifier"
+    )
+    health_heartbeat.add_argument(
+        "--assignment-id", help="optional canonical assignment identifier"
+    )
+    health_heartbeat.add_argument("--note", help="optional human-readable context")
+    health_status_cmd = commands.add_parser(
+        "health-status", help="report liveness status for a single agent"
+    )
+    health_status_cmd.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    health_status_cmd.add_argument(
+        "--timeout",
+        type=float,
+        default=300,
+        help="staleness threshold in seconds (default: 300)",
+    )
+    health_report = commands.add_parser(
+        "health-report", help="report liveness for every agent assigned to a mission"
+    )
+    health_report.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    health_report.add_argument(
+        "--timeout",
+        type=float,
+        default=300,
+        help="staleness threshold in seconds (default: 300)",
+    )
+    health_check_cmd = commands.add_parser(
+        "health-check", help="exit 2 when any mission agent is STALLED"
+    )
+    health_check_cmd.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    health_check_cmd.add_argument(
+        "--timeout",
+        type=float,
+        default=300,
+        help="staleness threshold in seconds (default: 300)",
     )
     return parser
 
@@ -585,6 +635,52 @@ def main(argv: Sequence[str] | None = None) -> int:
             _emit_pese_outcome(aex_outcome)
             return 2
 
+        if args.command.startswith("health-"):
+            from .health import HealthStore
+
+            hs = HealthStore(config.repository_root)
+            if args.command == "health-heartbeat":
+                rec = hs.heartbeat(
+                    args.agent,
+                    mission_id=getattr(args, "mission_id", None),
+                    assignment_id=getattr(args, "assignment_id", None),
+                    note=getattr(args, "note", None),
+                )
+                print(f"agent_id={rec.agent_id}")
+                print(f"occurred_at={rec.occurred_at}")
+                print(f"sequence={rec.sequence}")
+                return 0
+            if args.command == "health-status":
+                h = hs.agent_health(args.agent, timeout=args.timeout)
+                print(f"agent_id={h.agent_id}")
+                print(f"status={h.status}")
+                print(f"heartbeat_count={h.heartbeat_count}")
+                print(f"age_seconds={'' if h.age_seconds is None else h.age_seconds}")
+                print("last_heartbeat_at=" + (h.last_heartbeat_at or ""))
+                print("last_mission_id=" + (h.last_mission_id or ""))
+                print("last_assignment_id=" + (h.last_assignment_id or ""))
+                return 0
+            if args.command == "health-report":
+                report = hs.mission_health(args.mission_id, timeout=args.timeout)
+                print(f"agent_count={len(report)}")
+                for h in report:
+                    print(f"agent_id={h.agent_id}")
+                    print(f"status={h.status}")
+                    print(f"heartbeat_count={h.heartbeat_count}")
+                    print(
+                        f"age_seconds={'' if h.age_seconds is None else h.age_seconds}"
+                    )
+                return 0
+            if args.command == "health-check":
+                stalled = hs.check_stalled(args.mission_id, timeout=args.timeout)
+                mission_agents = hs.mission_agents(args.mission_id)
+                print(f"agent_count={len(mission_agents)}")
+                print(f"stalled_count={len(stalled)}")
+                print("stalled=" + json.dumps(list(stalled)))
+                return 0 if not stalled else 2
+            # Unreachable but keeps type-checker happy.
+            return 2  # pragma: no cover
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -654,10 +750,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         EEFError,
         CKSError,
         AEXError,
+        AHPError,
         ValueError,
         OSError,
     ) as error:
-        print(f"error: {error}")
-        return 2
         print(f"error: {error}")
         return 2

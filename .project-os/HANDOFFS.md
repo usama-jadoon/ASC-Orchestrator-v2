@@ -61,3 +61,14 @@ Record only distilled results and links to evidence. Do not paste private reason
 - Validation: full suite (existing PESE/TBE/MSS/EEF/CKS plus new AEX unit and CLI suites), MyPy, Ruff check/format, compilation, documentation validation, and CLI lifecycle smoke tests passed; execution-journal chain integrity and tamper detection verified; artifact + CKS signature round-trip verified.
 - Boundary: AEX executes and attests local agent work. It does not schedule dispatch decisions (EEF), assemble teams (TBE), intake missions (MSS), persist general state (PESE), or manage cryptographic keys (CKS). Encrypted transport and autonomous workflow scheduling remain outside scope.
 
+## M013 - Agent Health Protocol v1.0
+
+- Specification: `docs/AHP_v1.0.md` defines the canonical agent-health contract: purpose/scope, architecture and boundary, heartbeat record schema, agent health model (ALIVE/STALLED/UNKNOWN), on-disk layout, integrity and validation, CLI reference, error handling, compatibility, and implementation gates.
+- Runtime: `src/asc_orchestrator/health.py` implements the stdlib-only `HealthStore` over `.project-os/HEALTH/agents/`. Each agent owns an append-only, hash-chained JSONL journal (`previous_heartbeat_sha256` → `heartbeat_sha256`) with process-safe locking, atomic writes, and fsync. `validate()` verifies JSON, hashes, chain linkage, and monotonic sequence. Query time is injectable for deterministic stall detection.
+- Status model: ALIVE when last-heartbeat age ≤ timeout, STALLED when older, UNKNOWN when no heartbeat exists. Timeout is validated (`INVALID_TIMEOUT` for negative/non-numeric); agent ids are validated (`INVALID_AGENT`).
+- PESE integration: `mission_agents` reads `assigned_agent_ids` from PESE state read-only; `health-report`/`health-check` degrade to an empty agent set for unknown missions. AHP never mutates PESE state.
+- Windows compatibility: agent ids are `%3A`-encoded in journal filenames (matching TBE/AEX). The `_process_lock` from audit.py is reused for cross-process safety.
+- CLI: four `health-*` commands wired through `src/asc_orchestrator/cli.py` with machine-readable outcomes and deterministic exit codes (`health-check` exits 2 when any mission agent is STALLED).
+- Validation: full 258-test suite, MyPy, Ruff check/format, compilation, documentation validation (now checking AHP), and CLI health-lifecycle smoke tests passed; heartbeat hash-chain validation and STALLED exit-2 path verified.
+- Boundary: AHP observes and records agent liveness. It does not execute agent work (AEX), schedule dispatch decisions (EEF), assemble teams (TBE), intake missions (MSS), persist general state (PESE), or manage cryptographic keys (CKS). Heartbeats are independent of PESE state. Encrypted transport and autonomous workflow scheduling remain outside scope.
+

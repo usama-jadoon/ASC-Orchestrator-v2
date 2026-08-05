@@ -1,6 +1,6 @@
 # Project State
 
-Status: M012_AEX_COMPLETE
+Status: M013_AHP_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS. AHP v1.0 is the canonical agent-health contract that records per-agent heartbeat histories and derives ALIVE, STALLED, and UNKNOWN liveness status for stalled-agent detection.
 
 ## Verified completed capabilities
 
@@ -37,10 +37,13 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - AEX v1.0 runtime: deterministic, stdlib-only agent execution engine that consumes EEF-dispatched assignments, enforces actor authorization and PESE legal assignment transitions, persists immutable execution result records and copied artifacts under `.project-os/ARTIFACTS/`, and signs execution attestations via CKS.
 - AEX v1.0 EEF/CKS integration: every transition flows through `PESEStore.update()` with the legal ASSIGNMENT_STATUS map; each mutation emits an agent-owned EEF event (ASSIGNMENT_DISPATCHED, ASSIGNMENT_COMPLETED, ASSIGNMENT_FAILED, ASSIGNMENT_BLOCKED, ASSIGNMENT_ACTIVATED) to the hash-chained execution journal; result records are atomically written, entry-hash canonical, and optionally CKS-signed.
 - AEX CLI commands: `aex-dispatch`, `aex-complete`, `aex-fail`, `aex-block`, `aex-unblock`, `aex-status`, and `aex-result` with machine-readable outcomes, deterministic exit codes, Windows-safe `%3A`-encoded artifact layout, and path-traversal rejection.
+- AHP v1.0 runtime: deterministic, stdlib-only agent health store recording append-only, hash-chained per-agent heartbeat journals under `.project-os/HEALTH/agents/`, with process-safe locking, atomic writes, injectable query time, and read-only chain/sequence/hash validation.
+- AHP v1.0 status model: ALIVE/STALLED/UNKNOWN derived at query time from last-heartbeat age against a configurable timeout; `health-report` and `health-check` read mission `assigned_agent_ids` from PESE state (read-only) and never mutate PESE.
+- AHP CLI commands: `health-heartbeat`, `health-status`, `health-report`, and `health-check` with machine-readable outcomes and deterministic exit codes; `health-check` exits 2 when any mission agent is STALLED.
 
 ## Active work
 
-No active implementation work. M012 AEX agent execution and attestation is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
+No active implementation work. M013 AHP agent health observation is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
 
 ## Incomplete capabilities
 
@@ -48,9 +51,11 @@ Encrypted transport and autonomous workflow scheduling are not yet implemented.
 
 ## Release status
 
-M012 implements the canonical AEX v1.0 agent execution and attestation contract on top of the PESE/TBE/MSS/EEF/CKS foundations, completing the local execution loop: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), and execution (AEX). The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, and agent-execution scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
+M013 implements the canonical AHP v1.0 agent-health contract on top of the PESE/TBE/MSS/EEF/CKS/AEX foundations, adding liveness observation to the completed local execution loop: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), execution (AEX), and liveness (AHP). AHP records hash-chained heartbeat histories and derives ALIVE, STALLED, and UNKNOWN status, supplying the stalled-agent signal the M016 recovery engine and M019 autonomous scheduler consume. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, agent-execution, and agent-health scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
 
 ## Last verified
+
+2026-08-05 - M013 AHP release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS/AEX plus new AHP unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking AHP), CLI health lifecycle smoke tests (heartbeat → status → report → check), heartbeat hash-chain validation, and STALLED exit-2 verification.
 
 2026-08-05 - M012 AEX release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS plus new AEX unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking AEX), CLI execution lifecycle smoke tests (start → dispatch → complete/result with artifact + CKS signature, fail, block/unblock), and EEF event-journal chain verification.
 
