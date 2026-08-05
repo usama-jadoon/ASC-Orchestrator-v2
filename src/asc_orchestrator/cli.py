@@ -7,6 +7,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from .aex import AEXError
 from .config import ConfigurationError, load_config
 from .execution import EEFError
 from .keys import CKSError
@@ -152,6 +153,83 @@ def _parser() -> argparse.ArgumentParser:
     key_verify.add_argument("--signature", required=True, help="64-char hex signature")
     commands.add_parser(
         "key-validate", help="verify CKS key records, fingerprints, and ledgers"
+    )
+    aex_commands = {
+        "aex-dispatch": "claim a READY assignment: READY → IN_PROGRESS",
+        "aex-fail": "mark an IN_PROGRESS assignment as FAILED",
+        "aex-block": "block a READY or IN_PROGRESS assignment",
+        "aex-unblock": "release a BLOCKED assignment back to READY",
+    }
+    for name, help_text in aex_commands.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--mission-id", required=True, help="canonical mission identifier"
+        )
+        command.add_argument(
+            "--assignment-id", required=True, help="canonical assignment identifier"
+        )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="agent actor owning the assignment (must match assigned_agent_id)",
+        )
+        if name in {"aex-fail", "aex-block"}:
+            command.add_argument(
+                "--reason", required=True, help="reason for the transition"
+            )
+    aex_complete = commands.add_parser(
+        "aex-complete",
+        help="complete an IN_PROGRESS assignment and persist the result record",
+    )
+    aex_complete.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    aex_complete.add_argument(
+        "--assignment-id", required=True, help="canonical assignment identifier"
+    )
+    aex_complete.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="agent actor owning the assignment (must match assigned_agent_id)",
+    )
+    aex_complete.add_argument(
+        "--output", help="output text recorded in the execution result"
+    )
+    aex_complete.add_argument(
+        "--artifact",
+        action="append",
+        help="artifact path to persist (repeatable, resolved relative to repository root)",
+    )
+    aex_complete.add_argument(
+        "--key-id", help="CKS key used to sign the execution result record"
+    )
+    aex_status = commands.add_parser(
+        "aex-status", help="read the current state of an assignment"
+    )
+    aex_status.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    aex_status.add_argument(
+        "--assignment-id", required=True, help="canonical assignment identifier"
+    )
+    aex_status.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    aex_result = commands.add_parser(
+        "aex-result", help="load the execution result record, if any"
+    )
+    aex_result.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    aex_result.add_argument(
+        "--assignment-id", required=True, help="canonical assignment identifier"
+    )
+    aex_result.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
     )
     return parser
 
@@ -410,6 +488,103 @@ def main(argv: Sequence[str] | None = None) -> int:
             _emit_pese_outcome(outcome)
             return _eef_exit_code(outcome.code)
 
+        if args.command.startswith("aex-"):
+            from .aex import AEX
+
+            aex = AEX(
+                config.repository_root,
+                audit_directory=config.audit_dir,
+            )
+            if args.command == "aex-status":
+                aex_status = aex.status(args.mission_id, args.assignment_id, args.actor)
+                print(f"assignment_id={aex_status.assignment_id}")
+                print(f"status={aex_status.status}")
+                print(f"mission_id={aex_status.mission_id}")
+                print(f"agent_id={aex_status.agent_id}")
+                print(f"started_at={aex_status.started_at or ''}")
+                print(f"completed_at={aex_status.completed_at or ''}")
+                print(f"milestone_id={aex_status.milestone_id}")
+                return 0
+            if args.command == "aex-result":
+                exec_result = aex.result(args.mission_id, args.assignment_id)
+                if exec_result is None:
+                    print("outcome=RESULT_NOT_FOUND")
+                    print(f"assignment_id={args.assignment_id}")
+                    return 2
+                print(f"assignment_id={exec_result.assignment_id}")
+                print(f"mission_id={exec_result.mission_id}")
+                print(f"agent_id={exec_result.agent_id}")
+                print(f"status={exec_result.status}")
+                print(f"output_text={exec_result.output_text or ''}")
+                print(
+                    "artifact_hashes="
+                    + json.dumps(exec_result.artifact_hashes, sort_keys=True)
+                )
+                print(f"started_at={exec_result.started_at or ''}")
+                print(f"completed_at={exec_result.completed_at or ''}")
+                print(
+                    "pese_revision="
+                    + (
+                        str(exec_result.pese_revision)
+                        if exec_result.pese_revision is not None
+                        else ""
+                    )
+                )
+                print(f"pese_state_sha256={exec_result.pese_state_sha256 or ''}")
+                print(f"entry_hash={exec_result.entry_hash}")
+                print(
+                    "signature="
+                    + (
+                        json.dumps(exec_result.signature, sort_keys=True)
+                        if exec_result.signature
+                        else ""
+                    )
+                )
+                return 0
+            if args.command == "aex-complete":
+                exec_record = aex.complete(
+                    args.mission_id,
+                    args.assignment_id,
+                    args.actor,
+                    output_text=args.output,
+                    artifacts=args.artifact or None,
+                    key_id=args.key_id,
+                )
+                print(f"assignment_id={exec_record['assignment_id']}")
+                print(f"status={exec_record['status']}")
+                print(
+                    "artifact_count=" + str(len(exec_record.get("artifact_hashes", {})))
+                )
+                print("signed=" + ("true" if exec_record.get("signature") else "false"))
+                print(f"entry_hash={exec_record['entry_hash']}")
+                return 0
+            methods = {
+                "aex-dispatch": lambda: aex.dispatch(
+                    args.mission_id, args.assignment_id, args.actor
+                ),
+                "aex-fail": lambda: aex.fail(
+                    args.mission_id,
+                    args.assignment_id,
+                    args.actor,
+                    reason=args.reason,
+                ),
+                "aex-block": lambda: aex.block(
+                    args.mission_id,
+                    args.assignment_id,
+                    args.actor,
+                    reason=args.reason,
+                ),
+                "aex-unblock": lambda: aex.unblock(
+                    args.mission_id, args.assignment_id, args.actor
+                ),
+            }
+            aex_outcome = methods[args.command]()
+            if aex_outcome.code == "UPDATED":
+                print(f"assignment_id={args.assignment_id}")
+                return 0
+            _emit_pese_outcome(aex_outcome)
+            return 2
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -478,8 +653,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         PESEError,
         EEFError,
         CKSError,
+        AEXError,
         ValueError,
         OSError,
     ) as error:
+        print(f"error: {error}")
+        return 2
         print(f"error: {error}")
         return 2

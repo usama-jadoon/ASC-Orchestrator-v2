@@ -1,6 +1,6 @@
 # Project State
 
-Status: M011_CKS_COMPLETE
+Status: M012_AEX_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS.
 
 ## Verified completed capabilities
 
@@ -34,20 +34,25 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - EEF CLI commands: `execution-start`, `execution-status`, `execution-schedule`, `execution-pause`, `execution-resume`, `execution-cancel`, and `execution-complete` with machine-readable outcomes and deterministic exit codes.
 - CKS v1.0 runtime: deterministic, stdlib-only HMAC-SHA256 key store with immutable key records, atomic writes, status journals, rotation and revocation, constant-time verification, and a hash-chained per-key signing ledger.
 - CKS CLI commands: `key-create`, `key-list`, `key-sign`, `key-verify`, `key-rotate`, `key-revoke`, and `key-validate` with machine-readable outcomes and deterministic exit codes; keys persist under `.project-os/KEYS/` and never read or mutate PESE/ACP/TBE/MSS/EEF state.
+- AEX v1.0 runtime: deterministic, stdlib-only agent execution engine that consumes EEF-dispatched assignments, enforces actor authorization and PESE legal assignment transitions, persists immutable execution result records and copied artifacts under `.project-os/ARTIFACTS/`, and signs execution attestations via CKS.
+- AEX v1.0 EEF/CKS integration: every transition flows through `PESEStore.update()` with the legal ASSIGNMENT_STATUS map; each mutation emits an agent-owned EEF event (ASSIGNMENT_DISPATCHED, ASSIGNMENT_COMPLETED, ASSIGNMENT_FAILED, ASSIGNMENT_BLOCKED, ASSIGNMENT_ACTIVATED) to the hash-chained execution journal; result records are atomically written, entry-hash canonical, and optionally CKS-signed.
+- AEX CLI commands: `aex-dispatch`, `aex-complete`, `aex-fail`, `aex-block`, `aex-unblock`, `aex-status`, and `aex-result` with machine-readable outcomes, deterministic exit codes, Windows-safe `%3A`-encoded artifact layout, and path-traversal rejection.
 
 ## Active work
 
-No active implementation work. M011 CKS cryptographic key and audit-signing management is complete; agent execution, transport, and autonomous workflow scheduling remain outside the current release scope.
+No active implementation work. M012 AEX agent execution and attestation is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
 
 ## Incomplete capabilities
 
-Agent execution, encrypted transport, and autonomous workflow scheduling are not yet implemented.
+Encrypted transport and autonomous workflow scheduling are not yet implemented.
 
 ## Release status
 
-M011 implements the canonical CKS v1.0 cryptographic key and audit-signing contract on top of the PESE/TBE/MSS/EEF foundations. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, and cryptographic-signing scope; agent execution, transport, and autonomous workflow scheduling remain intentionally absent.
+M012 implements the canonical AEX v1.0 agent execution and attestation contract on top of the PESE/TBE/MSS/EEF/CKS foundations, completing the local execution loop: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), and execution (AEX). The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, and agent-execution scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
 
 ## Last verified
+
+2026-08-05 - M012 AEX release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS plus new AEX unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking AEX), CLI execution lifecycle smoke tests (start → dispatch → complete/result with artifact + CKS signature, fail, block/unblock), and EEF event-journal chain verification.
 
 2026-08-04 - MISSION-007 PESE runtime passed 44 unit tests, three repeated full-suite reliability runs, MyPy, Ruff, compilation, documentation validation, runtime Git lifecycle checks, and independent QA/conformance review.
 

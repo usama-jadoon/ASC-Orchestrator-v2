@@ -1,4 +1,4 @@
-"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, and CKS contracts."""
+"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, CKS, and AEX contracts."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ TBE = ROOT / "docs" / "TBE_v1.0.md"
 MSS = ROOT / "docs" / "MSS_v1.0.md"
 EEF = ROOT / "docs" / "EEF_v1.0.md"
 CKS = ROOT / "docs" / "CKS_v1.0.md"
+AEX = ROOT / "docs" / "AEX_v1.0.md"
 
 REQUIRED_PESE_HEADINGS = (
     "## 2. Canonical persistence model",
@@ -69,6 +70,17 @@ REQUIRED_CKS_HEADINGS = (
     "## 13. IMPLEMENTATION GATES",
 )
 
+REQUIRED_AEX_HEADINGS = (
+    "## 2. ARCHITECTURE AND BOUNDARY",
+    "## 3. ASSIGNMENT EXECUTION LIFECYCLE",
+    "## 4. EXECUTION RESULT RECORD",
+    "## 7. EEF EVENT INTEGRATION",
+    "## 9. CLI REFERENCE",
+    "## 10. ERROR HANDLING",
+    "## 12. IMPLEMENTATION REQUIREMENTS",
+    "## 13. IMPLEMENTATION GATES",
+)
+
 
 def main() -> int:
     """Return nonzero when a canonical contract or CLI invariant is absent."""
@@ -79,6 +91,7 @@ def main() -> int:
     mss = MSS.read_text(encoding="utf-8")
     eef = EEF.read_text(encoding="utf-8")
     cks = CKS.read_text(encoding="utf-8")
+    aex = AEX.read_text(encoding="utf-8")
     errors: list[str] = []
 
     for command in (
@@ -102,6 +115,13 @@ def main() -> int:
         "key-rotate",
         "key-revoke",
         "key-validate",
+        "aex-dispatch",
+        "aex-complete",
+        "aex-fail",
+        "aex-block",
+        "aex-unblock",
+        "aex-status",
+        "aex-result",
     ):
         if f" {command}" not in readme:
             errors.append(f"README does not document the `{command}` command")
@@ -120,6 +140,9 @@ def main() -> int:
     for heading in REQUIRED_CKS_HEADINGS:
         if heading not in cks:
             errors.append(f"CKS specification is missing: {heading}")
+    for heading in REQUIRED_AEX_HEADINGS:
+        if heading not in aex:
+            errors.append(f"AEX specification is missing: {heading}")
     if "**END OF SPECIFICATION" not in pese:
         errors.append("PESE specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in tbe:
@@ -130,6 +153,8 @@ def main() -> int:
         errors.append("EEF specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in cks:
         errors.append("CKS specification does not contain its terminal marker")
+    if "**END OF SPECIFICATION" not in aex:
+        errors.append("AEX specification does not contain its terminal marker")
 
     fences = re.findall(r"```json\n(.*?)\n```", pese, flags=re.DOTALL)
     if not fences:
@@ -167,6 +192,15 @@ def main() -> int:
         except json.JSONDecodeError as error:
             errors.append(f"CKS JSON example {index} is invalid: {error.msg}")
 
+    aex_fences = re.findall(r"```json\n(.*?)\n```", aex, flags=re.DOTALL)
+    if not aex_fences:
+        errors.append("AEX specification has no JSON examples")
+    for index, document in enumerate(aex_fences, start=1):
+        try:
+            json.loads(document)
+        except json.JSONDecodeError as error:
+            errors.append(f"AEX JSON example {index} is invalid: {error.msg}")
+
     if errors:
         print("documentation=FAIL")
         print("\\n".join(errors))
@@ -180,6 +214,8 @@ def main() -> int:
     print(f"eef_json_examples={len(eef_fences)}")
     print(f"cks_required_headings={len(REQUIRED_CKS_HEADINGS)}")
     print(f"cks_json_examples={len(cks_fences)}")
+    print(f"aex_required_headings={len(REQUIRED_AEX_HEADINGS)}")
+    print(f"aex_json_examples={len(aex_fences)}")
     return 0
 
 

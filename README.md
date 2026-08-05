@@ -18,6 +18,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - TBE v1.0 deterministic assembly runtime for specialist selection, ownership, dependency graphs, validation interfaces, and canonical team manifests
 - EEF v1.0 execution runtime for deterministic mission lifecycle management (start, schedule, pause, resume, cancel, complete) with a hash-chained execution event journal
 - CKS v1.0 cryptographic key service for HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger for production audit attestation
+- AEX v1.0 agent execution runtime for claiming dispatched assignments, persisting work-product artifacts, and signing execution attestations via CKS
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -53,6 +54,13 @@ python -m asc_orchestrator --root . key-verify --key-id KEY-... --file checkpoin
 python -m asc_orchestrator --root . key-rotate --key-id KEY-... --actor AGENT:orchestrator:local
 python -m asc_orchestrator --root . key-revoke --key-id KEY-... --actor AGENT:orchestrator:local
 python -m asc_orchestrator --root . key-validate
+python -m asc_orchestrator --root . aex-dispatch --mission-id MISSION:example --assignment-id ASSIGNMENT:build --actor AGENT:developer:local
+python -m asc_orchestrator --root . aex-complete --mission-id MISSION:example --assignment-id ASSIGNMENT:build --actor AGENT:developer:local --output "work done" --artifact report.md --key-id KEY-...
+python -m asc_orchestrator --root . aex-fail --mission-id MISSION:example --assignment-id ASSIGNMENT:build --actor AGENT:developer:local --reason "gate failed"
+python -m asc_orchestrator --root . aex-block --mission-id MISSION:example --assignment-id ASSIGNMENT:build --actor AGENT:developer:local --reason "waiting on input"
+python -m asc_orchestrator --root . aex-unblock --mission-id MISSION:example --assignment-id ASSIGNMENT:build --actor AGENT:developer:local
+python -m asc_orchestrator --root . aex-status --mission-id MISSION:example --assignment-id ASSIGNMENT:build
+python -m asc_orchestrator --root . aex-result --mission-id MISSION:example --assignment-id ASSIGNMENT:build
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -76,6 +84,8 @@ MSS is specified in [MSS v1.0](./docs/MSS_v1.0.md). `validate-mission` accepts a
 EEF is specified in [EEF v1.0](./docs/EEF_v1.0.md). The execution commands drive a PESE-bound, TBE-assigned mission through its lifecycle: `execution-start` activates a planned mission and its root assignments, `execution-schedule` computes the deterministic FIFO dispatch decision, `execution-pause`/`execution-resume` interrupt and recover a mission, `execution-cancel` terminates it, `execution-complete` advances it to VALIDATING, and `execution-status` reads the lifecycle snapshot. All state changes flow through PESE's audited transition API, and every event is appended to the hash-chained journal at `.project-os/AUDIT/execution-events.jsonl`. EEF schedules and dispatches work; it does not execute agents.
 
 CKS is specified in [CKS v1.0](./docs/CKS_v1.0.md). The `key-*` commands manage a deterministic, stdlib-only HMAC-SHA256 key lifecycle: `key-create` generates a 256-bit key and persists an immutable record, `key-rotate` retires an active key and creates its replacement, `key-revoke` permanently disables an active key, `key-sign` produces an HMAC-SHA256 signature and records it in a hash-chained signing ledger, `key-verify` performs constant-time signature verification, `key-list` enumerates all keys, and `key-validate` checks key record integrity, fingerprints, and ledger chains. Keys live under `.project-os/KEYS/` and never read or mutate PESE, ACP, TBE, MSS, or EEF state.
+
+AEX is specified in [AEX v1.0](./docs/AEX_v1.0.md). The `aex-*` commands execute the agent work that EEF dispatches: `aex-dispatch` claims a READY assignment and transitions it to IN_PROGRESS, `aex-complete` finishes an IN_PROGRESS assignment by persisting an immutable execution result record (optionally copying artifacts and signing the record via `--key-id` with CKS), `aex-fail` marks a failed assignment terminal, `aex-block`/`aex-unblock` gate an assignment on a precondition, `aex-status` reads the assignment lifecycle snapshot, and `aex-result` loads the persisted execution result record. Result records and copied artifacts live beneath `.project-os/ARTIFACTS/` with IDs percent-encoded for Windows compatibility, and every transition emits an agent-owned event to the EEF execution journal. AEX executes and attests local agent work; it does not schedule, assemble teams, or manage keys.
 
 ## Documentation
 

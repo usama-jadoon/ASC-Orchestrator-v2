@@ -51,3 +51,13 @@ Record only distilled results and links to evidence. Do not paste private reason
 - Validation: full 189-case suite, MyPy, Ruff check/format, compilation, documentation validation, and CLI key-lifecycle smoke tests passed; signing-ledger chain integrity and tamper detection verified.
 - Boundary: CKS provides symmetric identity and audit signing only. It does not implement encrypted transport, asymmetric PKI, agent execution, or autonomous workflow scheduling.
 
+## M012 - Agent Execution Engine v1.0
+
+- Specification: `docs/AEX_v1.0.md` defines the canonical agent-execution contract: purpose/scope, architecture and boundary, assignment execution lifecycle, execution result record, artifact persistence, CKS attestation, EEF event integration, on-disk layout, CLI reference, error handling, compatibility, and implementation gates.
+- Runtime: `src/asc_orchestrator/aex.py` implements the stdlib-only `AEX` runtime over `.project-os/ARTIFACTS/`. It claims READY assignments (dispatch), completes IN_PROGRESS assignments with immutable result records plus copied artifacts, fails/block/unblocks, and reads status/results. Result records carry a canonical `entry_hash` and an optional CKS `signature`; artifact paths are validated against repository-root traversal.
+- PESE/EEF integration: all transitions flow through `PESEStore.update()` with the legal ASSIGNMENT_STATUS map and actor authorization; each mutation emits an agent-owned EEF event (ASSIGNMENT_DISPATCHED, ASSIGNMENT_COMPLETED, ASSIGNMENT_FAILED, ASSIGNMENT_BLOCKED, ASSIGNMENT_ACTIVATED) to the hash-chained execution journal with the PESE revision and state hash.
+- Windows compatibility: mission and assignment IDs are `%3A`-encoded in directory names (matching TBE's `team_manifest_relative_path`), so result.json and artifacts resolve on Windows filesystems.
+- CLI: seven `aex-*` commands wired through `src/asc_orchestrator/cli.py` with machine-readable outcomes and deterministic exit codes (`aex-complete`/`aex-result` print full record fields).
+- Validation: full suite (existing PESE/TBE/MSS/EEF/CKS plus new AEX unit and CLI suites), MyPy, Ruff check/format, compilation, documentation validation, and CLI lifecycle smoke tests passed; execution-journal chain integrity and tamper detection verified; artifact + CKS signature round-trip verified.
+- Boundary: AEX executes and attests local agent work. It does not schedule dispatch decisions (EEF), assemble teams (TBE), intake missions (MSS), persist general state (PESE), or manage cryptographic keys (CKS). Encrypted transport and autonomous workflow scheduling remain outside scope.
+
