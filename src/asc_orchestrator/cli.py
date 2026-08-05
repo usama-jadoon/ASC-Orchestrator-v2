@@ -13,6 +13,7 @@ from .execution import EEFError
 from .health import AHPError
 from .keys import CKSError
 from .pese import PESEError, PESEOutcome, PESEStore
+from .risk import RiskError
 from .validation import VALError
 
 
@@ -330,6 +331,116 @@ def _parser() -> argparse.ArgumentParser:
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
     )
+    risk_open = commands.add_parser(
+        "risk-open", help="register a new risk in OPEN status"
+    )
+    risk_open.add_argument("--risk-id", required=True, help="canonical risk identifier")
+    risk_open.add_argument(
+        "--severity",
+        required=True,
+        choices=("LOW", "MEDIUM", "HIGH", "CRITICAL"),
+        help="risk severity",
+    )
+    risk_open.add_argument("--description", required=True, help="risk description")
+    risk_open.add_argument(
+        "--mission-id",
+        help="canonical mission identifier (default: company-wide risk)",
+    )
+    risk_open.add_argument(
+        "--owner",
+        default="AGENT:orchestrator:local",
+        help="owner agent recorded on the risk",
+    )
+    risk_open.add_argument(
+        "--evidence",
+        action="append",
+        help="evidence reference (repeatable)",
+    )
+    risk_open.add_argument(
+        "--block-condition",
+        help="human-readable block condition description (HIGH risks only)",
+    )
+    risk_list = commands.add_parser(
+        "risk-list", help="list risks, optionally filtered by mission"
+    )
+    risk_list.add_argument(
+        "--mission-id", help="filter to a canonical mission identifier"
+    )
+    risk_list.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    risk_status = commands.add_parser("risk-status", help="read a single risk snapshot")
+    risk_status.add_argument(
+        "--risk-id", required=True, help="canonical risk identifier"
+    )
+    risk_status.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    risk_resolve = commands.add_parser(
+        "risk-resolve", help="resolve an OPEN or MITIGATING risk"
+    )
+    risk_resolve.add_argument(
+        "--risk-id", required=True, help="canonical risk identifier"
+    )
+    risk_resolve.add_argument(
+        "--evidence",
+        action="append",
+        help="evidence reference (repeatable)",
+    )
+    risk_resolve.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor performing the transition",
+    )
+    risk_halt = commands.add_parser(
+        "risk-halt", help="halt an OPEN risk (blocks autonomous execution)"
+    )
+    risk_halt.add_argument("--risk-id", required=True, help="canonical risk identifier")
+    risk_halt.add_argument("--reason", required=True, help="halt reason")
+    risk_halt.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor performing the transition",
+    )
+    risk_check = commands.add_parser(
+        "risk-check", help="hold-mechanism evaluation; exit 2 when blocked"
+    )
+    risk_check.add_argument(
+        "--mission-id", help="scope evaluation to a canonical mission"
+    )
+    risk_check.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    risk_report = commands.add_parser("risk-report", help="mission-level risk summary")
+    risk_report.add_argument("--mission-id", help="scope report to a canonical mission")
+    risk_report.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    for name in ("risk-mitigate", "risk-accept"):
+        command = commands.add_parser(
+            name,
+            help=(
+                "transition an OPEN risk to MITIGATING"
+                if name == "risk-mitigate"
+                else "accept an OPEN risk"
+            ),
+        )
+        command.add_argument(
+            "--risk-id", required=True, help="canonical risk identifier"
+        )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="actor performing the transition",
+        )
     return parser
 
 
@@ -822,6 +933,124 @@ def main(argv: Sequence[str] | None = None) -> int:
             _emit_pese_outcome(outcome)
             return 0 if outcome.code == "UPDATED" else 2
 
+        if args.command.startswith("risk-"):
+            from .risk import RiskEngine
+
+            risk_engine = RiskEngine(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            actor = getattr(args, "actor", "AGENT:orchestrator:local")
+
+            if args.command == "risk-open":
+                block_condition = None
+                if args.block_condition:
+                    block_condition = {"description": args.block_condition}
+                outcome = risk_engine.open(
+                    args.risk_id,
+                    args.severity,
+                    args.description,
+                    args.mission_id,
+                    args.owner,
+                    evidence_refs=args.evidence,
+                    block_condition=block_condition,
+                )
+                if outcome.code == "UPDATED":
+                    print(f"risk_id={args.risk_id}")
+                    print("status=OPEN")
+                    return 0
+                _emit_pese_outcome(outcome)
+                return 2
+
+            if args.command == "risk-list":
+                risk_records = risk_engine.list(args.mission_id, actor=actor)
+                print(f"risk_count={len(risk_records)}")
+                for risk_rec in risk_records:
+                    print(f"risk_id={risk_rec.risk_id}")
+                    print(f"status={risk_rec.status}")
+                    print(f"severity={risk_rec.severity}")
+                    print(f"mission_id={risk_rec.mission_id or ''}")
+                return 0
+
+            if args.command == "risk-status":
+                risk_rec = risk_engine.status(args.risk_id, actor=actor)
+                print(f"risk_id={risk_rec.risk_id}")
+                print(f"status={risk_rec.status}")
+                print(f"severity={risk_rec.severity}")
+                print(f"description={risk_rec.description}")
+                print(f"mission_id={risk_rec.mission_id or ''}")
+                print(
+                    "evidence_refs="
+                    + json.dumps(list(risk_rec.evidence_refs), sort_keys=True)
+                )
+                print(f"owner_agent_id={risk_rec.owner_agent_id}")
+                print(f"opened_at={risk_rec.opened_at}")
+                print(f"resolved_at={risk_rec.resolved_at or ''}")
+                return 0
+
+            if args.command == "risk-check":
+                check = risk_engine.check(args.mission_id, actor=actor)
+                print(f"blocked={'true' if check.blocked else 'false'}")
+                print(f"blocking_count={len(check.blocking_risks)}")
+                for br in check.blocking_risks:
+                    print(f"blocking_risk_id={br.risk_id}")
+                    print(f"blocking_severity={br.severity}")
+                    print(f"blocking_status={br.status}")
+                    print(f"blocking_mission_id={br.mission_id or ''}")
+                    print(f"blocking_reason={br.reason}")
+                print(f"reason={check.reason}")
+                return 0 if not check.blocked else 2
+
+            if args.command == "risk-report":
+                risk_report = risk_engine.report(args.mission_id, actor=actor)
+                print(f"mission_id={risk_report.mission_id or ''}")
+                print(f"total={risk_report.total}")
+                print(f"open_count={risk_report.open_count}")
+                print(f"mitigating_count={risk_report.mitigating_count}")
+                print(f"accepted_count={risk_report.accepted_count}")
+                print(f"resolved_count={risk_report.resolved_count}")
+                print(f"halt_count={risk_report.halt_count}")
+                print(f"low_count={risk_report.low_count}")
+                print(f"medium_count={risk_report.medium_count}")
+                print(f"high_count={risk_report.high_count}")
+                print(f"critical_count={risk_report.critical_count}")
+                print(
+                    f"critical_unresolved_count={risk_report.critical_unresolved_count}"
+                )
+                print(f"blocked={'true' if risk_report.blocked else 'false'}")
+                return 0
+
+            if args.command in {"risk-mitigate", "risk-accept"}:
+                outcome = (
+                    risk_engine.mitigate(args.risk_id, actor)
+                    if args.command == "risk-mitigate"
+                    else risk_engine.accept(args.risk_id, actor)
+                )
+                if outcome.code == "UPDATED":
+                    print(f"risk_id={args.risk_id}")
+                    return 0
+                _emit_pese_outcome(outcome)
+                return 2
+
+            if args.command == "risk-resolve":
+                outcome = risk_engine.resolve(
+                    args.risk_id, actor, evidence_refs=args.evidence
+                )
+                if outcome.code == "UPDATED":
+                    print(f"risk_id={args.risk_id}")
+                    return 0
+                _emit_pese_outcome(outcome)
+                return 2
+
+            if args.command == "risk-halt":
+                outcome = risk_engine.halt(args.risk_id, actor, args.reason)
+                if outcome.code == "UPDATED":
+                    print(f"risk_id={args.risk_id}")
+                    return 0
+                _emit_pese_outcome(outcome)
+                return 2
+            # Unreachable but keeps type-checker happy.
+            return 2  # pragma: no cover
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -893,6 +1122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         AEXError,
         AHPError,
         VALError,
+        RiskError,
         ValueError,
         OSError,
     ) as error:

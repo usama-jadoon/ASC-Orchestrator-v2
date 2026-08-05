@@ -1,6 +1,6 @@
 # Project State
 
-Status: M014_VAL_COMPLETE
+Status: M015_RKM_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS. AHP v1.0 is the canonical agent-health contract that records per-agent heartbeat histories and derives ALIVE, STALLED, and UNKNOWN liveness status for stalled-agent detection. VAL v1.0 is the canonical validation contract that drives PESE validation gates through their lifecycle, registers SHA-256-bound validation artifacts, and emits gate verdicts to the EEF execution journal.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS. AHP v1.0 is the canonical agent-health contract that records per-agent heartbeat histories and derives ALIVE, STALLED, and UNKNOWN liveness status for stalled-agent detection. VAL v1.0 is the canonical validation contract that drives PESE validation gates through their lifecycle, registers SHA-256-bound validation artifacts, and emits gate verdicts to the EEF execution journal. RKM v1.0 is the canonical risk-management contract that operates the PESE risk ledger, enforces the risk status state machine, and implements the hold mechanism that blocks autonomous execution on HALT / unresolved CRITICAL / declared HIGH block conditions.
 
 ## Verified completed capabilities
 
@@ -44,10 +44,14 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - VAL v1.0 PESE/EEF integration: every gate transition flows through `PESEStore.update()` with transition type `VALIDATION_GATE`; each verdict emits a `GATE_*` event (GATE_STARTED, GATE_PASSED, GATE_FAILED, GATE_BLOCKED, GATE_INVALIDATED) to the EEF execution journal; `verify()` provides raw-read per-artifact diagnostics when tampered artifacts make PESE state unloadable.
 - VAL v1.0 tamper policy: tampered artifacts are a secure halt for mutations; invalidation of tampered evidence is an operator recovery action, never a programmatic sweep under the rug; `invalidate()` enforces the binding-failure precondition per PESE spec section 5.3 and raises `BINDING_INTACT` when the binding is sound.
 - VAL CLI commands: `validation-gates`, `validation-start`, `validation-finish`, `validation-verify`, `validation-invalidate`, and `validation-report` with machine-readable outcomes and deterministic exit codes; mutation commands resolve the actor to the gate's designated validator.
+- RKM v1.0 runtime: deterministic, stdlib-only risk-management engine that operates the PESE `risk_state.risks` ledger, enforces the RKM status state machine (`OPEN → MITIGATING/ACCEPTED/RESOLVED/HALT`, `MITIGATING → RESOLVED`), and evaluates the hold mechanism per PESE section 4.7 (HALT risk, unresolved CRITICAL, or HIGH risk with a declared block condition blocks autonomous execution).
+- RKM v1.0 PESE/EEF integration: every risk mutation flows through `PESEStore.update()` with transition type `RISK_STATUS` (RKM enforces its own state machine because `RISK_STATUS` is not in PESE's legal map, the same pattern as EEF's `MISSION_INTERRUPT_RECOVERY` and VAL's `VALIDATION_GATE`); each transition emits a `RISK_*` event (RISK_OPENED, RISK_MITIGATED, RISK_ACCEPTED, RISK_RESOLVED, RISK_HALTED) to the EEF execution journal; block conditions for HIGH risks persist under the reverse-DNS `extensions["org.asc.rkm"]` key.
+- RKM hold mechanism: mission-scoped checks include company-wide risks (`mission_id=None`), which block all missions; HIGH risks block only when a block condition is declared in the `org.asc.rkm` extension; CRITICAL risks always block while open unless ACCEPTED or RESOLVED.
+- RKM CLI commands: `risk-open`, `risk-list`, `risk-status`, `risk-mitigate`, `risk-accept`, `risk-resolve`, `risk-halt`, `risk-check`, and `risk-report` with machine-readable outcomes and deterministic exit codes; `risk-check` exits 2 when autonomous execution is blocked.
 
 ## Active work
 
-No active implementation work. M014 VAL validation gates and artifact verification is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
+No active implementation work. M015 RKM risk management and the hold mechanism is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
 
 ## Incomplete capabilities
 
@@ -55,9 +59,11 @@ Encrypted transport and autonomous workflow scheduling are not yet implemented.
 
 ## Release status
 
-M014 implements the canonical VAL v1.0 validation contract on top of the PESE/TBE/MSS/EEF/CKS/AEX/AHP foundations, closing the mission-lifecycle gap: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), execution (AEX), liveness (AHP), and validation (VAL). VAL drives gate verdicts and verifies artifacts, supplying the validation runtime the M017 recovery engine and M019 autonomous scheduler consume to gate mission completion. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, agent-execution, agent-health, and validation scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
+M015 implements the canonical RKM v1.0 risk-management contract on top of the PESE/TBE/MSS/EEF/CKS/AEX/AHP/VAL foundations, closing the autonomous-safety gap: the risk ledger and hold mechanism give M019's autonomous scheduler a deterministic gate (`risk-check`) to evaluate whether unattended dispatch is safe. RKM operates risk records over PESE `risk_state`, enforces the risk status state machine through `RISK_STATUS` transitions, persists HIGH block conditions under the `org.asc.rkm` extension, and blocks autonomous execution on any HALT risk, unresolved CRITICAL risk, or HIGH risk with a declared block condition. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, agent-execution, agent-health, validation, and risk-management scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
 
 ## Last verified
+
+2026-08-05 - M015 RKM release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS/AEX/AHP/VAL plus new RKM unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking RKM), CLI risk lifecycle smoke tests (open → list → status → mitigate → resolve, halt → check exit 2, CRITICAL → check exit 2, resolve/accept CRITICAL → check exit 0, HIGH with block condition → check exit 2, mission-scoped check, report), EEF event-journal chain verification with RISK_* events, and backward-compatibility smoke.
 
 2026-08-05 - M014 VAL release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS/AEX/AHP plus new VAL unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking VAL), CLI validation lifecycle smoke tests (gates → start → finish GREEN/RED → verify → invalidate → report), EEF event-journal chain verification with GATE_* events, and tamper-detection halt path.
 

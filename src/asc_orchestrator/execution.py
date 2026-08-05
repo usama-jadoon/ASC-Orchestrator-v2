@@ -47,6 +47,12 @@ EVENT_TYPES = frozenset(
         "GATE_FAILED",
         "GATE_BLOCKED",
         "GATE_INVALIDATED",
+        # Risk Management (RKM v1.0) risk events.
+        "RISK_OPENED",
+        "RISK_MITIGATED",
+        "RISK_ACCEPTED",
+        "RISK_RESOLVED",
+        "RISK_HALTED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"

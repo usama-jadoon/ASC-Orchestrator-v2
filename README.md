@@ -21,6 +21,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - AEX v1.0 agent execution runtime for claiming dispatched assignments, persisting work-product artifacts, and signing execution attestations via CKS
 - AHP v1.0 agent health runtime for append-only, hash-chained heartbeat journals that derive ALIVE, STALLED, and UNKNOWN liveness status
 - VAL v1.0 validation runtime for driving PESE validation gates through their lifecycle, registering SHA-256-bound artifacts, and emitting gate verdicts to the EEF execution journal
+- RKM v1.0 risk-management runtime for operating the PESE risk ledger, enforcing the risk status state machine, and implementing the hold mechanism that blocks autonomous execution on HALT / unresolved CRITICAL / declared HIGH block conditions
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -73,6 +74,15 @@ python -m asc_orchestrator --root . validation-finish --mission-id MISSION:examp
 python -m asc_orchestrator --root . validation-verify --mission-id MISSION:example --gate-id GATE:MISSION:example:functional
 python -m asc_orchestrator --root . validation-invalidate --mission-id MISSION:example --gate-id GATE:MISSION:example:functional
 python -m asc_orchestrator --root . validation-report --mission-id MISSION:example
+python -m asc_orchestrator --root . risk-open --risk-id RISK:MISSION:example:001 --severity HIGH --description "deploy gate pending" --mission-id MISSION:example --block-condition "deploy gate pending"
+python -m asc_orchestrator --root . risk-list
+python -m asc_orchestrator --root . risk-status --risk-id RISK:MISSION:example:001
+python -m asc_orchestrator --root . risk-mitigate --risk-id RISK:MISSION:example:001
+python -m asc_orchestrator --root . risk-accept --risk-id RISK:MISSION:example:001
+python -m asc_orchestrator --root . risk-resolve --risk-id RISK:MISSION:example:001
+python -m asc_orchestrator --root . risk-halt --risk-id RISK:MISSION:example:001 --reason "investigation"
+python -m asc_orchestrator --root . risk-check --mission-id MISSION:example
+python -m asc_orchestrator --root . risk-report --mission-id MISSION:example
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -102,6 +112,8 @@ AEX is specified in [AEX v1.0](./docs/AEX_v1.0.md). The `aex-*` commands execute
 AHP is specified in [AHP v1.0](./docs/AHP_v1.0.md). The `health-*` commands observe agent liveness: `health-heartbeat` appends a hash-chained heartbeat to an agent's journal, `health-status` derives the ALIVE/STALLED/UNKNOWN status from the freshness of the last heartbeat against a configurable timeout, `health-report` lists the per-agent status for every agent assigned to a mission, and `health-check` exits 2 when any mission agent is STALLED (a signal the M016 recovery engine consumes). Heartbeat journals live beneath `.project-os/HEALTH/agents/` with IDs percent-encoded for Windows compatibility. AHP observes liveness only; it does not execute work, schedule dispatch, or persist general state.
 
 VAL is specified in [VAL v1.0](./docs/VAL_v1.0.md). The `validation-*` commands drive PESE validation gates through their lifecycle: `validation-gates` lists the gates for a mission, `validation-start` transitions a PENDING gate to RUNNING, `validation-finish` records a GREEN/RED/BLOCKED verdict (binding validation artifacts by SHA-256 when GREEN), `validation-verify` compares bound artifact files against their recorded hashes (detecting tampering or deletion), `validation-invalidate` revokes a GREEN verdict when its artifact/repository binding fails, and `validation-report` aggregates a mission's gate status into a PASS/FAIL/HOLD overall. Every gate transition flows through PESE's audited transition API with type `VALIDATION_GATE`, and each verdict emits a `GATE_*` event to the EEF execution journal. Tampered artifacts are a secure halt for mutations; artifact integrity is protected by SHA-256 hashes in PESE state. VAL drives gates and verifies artifacts; it does not execute work, assemble teams, or schedule dispatch.
+
+RKM is specified in [RKM v1.0](./docs/RKM_v1.0.md). The `risk-*` commands operate the deterministic risk ledger over PESE `risk_state`: `risk-open` registers an OPEN risk record, `risk-list`/`risk-status` read risk snapshots (optionally mission-scoped), `risk-mitigate`/`risk-accept`/`risk-resolve`/`risk-halt` transition risks along the OPEN → MITIGATING/ACCEPTED/RESOLVED/HALT state machine, `risk-check` evaluates the hold mechanism (exiting 2 when any HALT risk, unresolved CRITICAL risk, or HIGH risk with a declared block condition blocks autonomous execution), and `risk-report` aggregates a mission-level risk summary. Every risk mutation flows through PESE's audited transition API with type `RISK_STATUS`, and each transition emits a `RISK_*` event to the EEF execution journal. Block conditions for HIGH risks live under the `org.asc.rkm` extension key. RKM operates the risk ledger and hold mechanism; it does not execute work, assemble teams, or schedule dispatch.
 
 ## Documentation
 

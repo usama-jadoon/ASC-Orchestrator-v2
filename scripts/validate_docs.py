@@ -1,4 +1,4 @@
-"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, CKS, AEX, AHP, and VAL contracts."""
+"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, CKS, AEX, AHP, VAL, and RKM contracts."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ CKS = ROOT / "docs" / "CKS_v1.0.md"
 AEX = ROOT / "docs" / "AEX_v1.0.md"
 AHP = ROOT / "docs" / "AHP_v1.0.md"
 VAL = ROOT / "docs" / "VAL_v1.0.md"
+RKM = ROOT / "docs" / "RKM_v1.0.md"
 
 REQUIRED_PESE_HEADINGS = (
     "## 2. Canonical persistence model",
@@ -106,6 +107,17 @@ REQUIRED_VAL_HEADINGS = (
     "## 13. IMPLEMENTATION GATES",
 )
 
+REQUIRED_RKM_HEADINGS = (
+    "## 2. ARCHITECTURE AND BOUNDARY",
+    "## 3. RISK RECORD SCHEMA",
+    "## 4. HOLD MECHANISM — BLOCKING EVALUATION",
+    "## 5. RISK LIFECYCLE",
+    "## 6. EVENT JOURNAL",
+    "## 7. CLI REFERENCE",
+    "## 8. ERROR HANDLING",
+    "## 12. IMPLEMENTATION GATES",
+)
+
 
 def main() -> int:
     """Return nonzero when a canonical contract or CLI invariant is absent."""
@@ -119,6 +131,7 @@ def main() -> int:
     aex = AEX.read_text(encoding="utf-8")
     ahp = AHP.read_text(encoding="utf-8")
     val = VAL.read_text(encoding="utf-8")
+    rkm = RKM.read_text(encoding="utf-8")
     errors: list[str] = []
 
     for command in (
@@ -159,6 +172,15 @@ def main() -> int:
         "validation-verify",
         "validation-invalidate",
         "validation-report",
+        "risk-open",
+        "risk-list",
+        "risk-status",
+        "risk-mitigate",
+        "risk-accept",
+        "risk-resolve",
+        "risk-halt",
+        "risk-check",
+        "risk-report",
     ):
         if f" {command}" not in readme:
             errors.append(f"README does not document the `{command}` command")
@@ -186,6 +208,9 @@ def main() -> int:
     for heading in REQUIRED_VAL_HEADINGS:
         if heading not in val:
             errors.append(f"VAL specification is missing: {heading}")
+    for heading in REQUIRED_RKM_HEADINGS:
+        if heading not in rkm:
+            errors.append(f"RKM specification is missing: {heading}")
     if "**END OF SPECIFICATION" not in pese:
         errors.append("PESE specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in tbe:
@@ -202,6 +227,8 @@ def main() -> int:
         errors.append("AHP specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in val:
         errors.append("VAL specification does not contain its terminal marker")
+    if "**END OF SPECIFICATION" not in rkm:
+        errors.append("RKM specification does not contain its terminal marker")
 
     fences = re.findall(r"```json\n(.*?)\n```", pese, flags=re.DOTALL)
     if not fences:
@@ -266,6 +293,15 @@ def main() -> int:
         except json.JSONDecodeError as error:
             errors.append(f"VAL JSON example {index} is invalid: {error.msg}")
 
+    rkm_fences = re.findall(r"```json\n(.*?)\n```", rkm, flags=re.DOTALL)
+    if not rkm_fences:
+        errors.append("RKM specification has no JSON examples")
+    for index, document in enumerate(rkm_fences, start=1):
+        try:
+            json.loads(document)
+        except json.JSONDecodeError as error:
+            errors.append(f"RKM JSON example {index} is invalid: {error.msg}")
+
     if errors:
         print("documentation=FAIL")
         print("\\n".join(errors))
@@ -285,6 +321,8 @@ def main() -> int:
     print(f"ahp_json_examples={len(ahp_fences)}")
     print(f"val_required_headings={len(REQUIRED_VAL_HEADINGS)}")
     print(f"val_json_examples={len(val_fences)}")
+    print(f"rkm_required_headings={len(REQUIRED_RKM_HEADINGS)}")
+    print(f"rkm_json_examples={len(rkm_fences)}")
     return 0
 
 
