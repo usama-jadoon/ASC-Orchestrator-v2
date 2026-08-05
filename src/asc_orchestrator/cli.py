@@ -13,6 +13,7 @@ from .execution import EEFError
 from .health import AHPError
 from .keys import CKSError
 from .pese import PESEError, PESEOutcome, PESEStore
+from .validation import VALError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -280,6 +281,54 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=300,
         help="staleness threshold in seconds (default: 300)",
+    )
+    validation_commands = {
+        "validation-gates": "list validation gates for a mission",
+        "validation-start": "begin gate execution: PENDING -> RUNNING",
+        "validation-verify": "verify gate artifacts match their recorded hashes",
+        "validation-invalidate": "invalidate a GREEN gate on binding failure",
+        "validation-report": "mission-level validation summary",
+    }
+    for name, help_text in validation_commands.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--mission-id", required=True, help="canonical mission identifier"
+        )
+        if name not in {"validation-gates", "validation-report"}:
+            command.add_argument(
+                "--gate-id", required=True, help="canonical gate identifier"
+            )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="actor used for PESE state access",
+        )
+    validation_finish = commands.add_parser(
+        "validation-finish",
+        help="conclude gate execution: RUNNING -> GREEN/RED/BLOCKED",
+    )
+    validation_finish.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    validation_finish.add_argument(
+        "--gate-id", required=True, help="canonical gate identifier"
+    )
+    validation_finish.add_argument(
+        "--verdict",
+        required=True,
+        choices=("GREEN", "RED", "BLOCKED"),
+        help="validation verdict for the gate",
+    )
+    validation_finish.add_argument(
+        "--artifact",
+        action="append",
+        help="artifact path to bind to the gate (repeatable)",
+    )
+    validation_finish.add_argument("--reason", help="context for the verdict")
+    validation_finish.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
     )
     return parser
 
@@ -681,6 +730,98 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Unreachable but keeps type-checker happy.
             return 2  # pragma: no cover
 
+        if args.command.startswith("validation-"):
+            from .validation import ValidationEngine
+
+            engine = ValidationEngine(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            actor = args.actor
+            if getattr(args, "gate_id", None) and args.command in {
+                "validation-start",
+                "validation-finish",
+                "validation-invalidate",
+            }:
+                # Fall back to the gate's designated validator when the caller
+                # is not it (mirrors execution- actor resolution).
+                try:
+                    for gate in engine.gates(args.mission_id, args.actor):
+                        if gate.gate_id == args.gate_id:
+                            if gate.validator_agent_id != actor:
+                                actor = gate.validator_agent_id
+                            break
+                except VALError:
+                    pass  # Mutation will fail with its own specific error.
+
+            if args.command == "validation-gates":
+                gates = engine.gates(args.mission_id, actor)
+                print(f"gate_count={len(gates)}")
+                for gate in gates:
+                    print(f"gate_id={gate.gate_id}")
+                    print(f"status={gate.status}")
+                    print(f"mission_id={gate.mission_id}")
+                    print(f"validator_agent_id={gate.validator_agent_id}")
+                    print(f"artifact_count={len(gate.artifact_ids)}")
+                    print("verdict_at=" + (gate.verdict_at or ""))
+                return 0
+
+            if args.command == "validation-report":
+                vreport = engine.report(args.mission_id, actor)
+                print(f"mission_id={vreport.mission_id}")
+                print(f"gate_count={vreport.gate_count}")
+                print(f"green_count={vreport.green_count}")
+                print(f"red_count={vreport.red_count}")
+                print(f"blocked_count={vreport.blocked_count}")
+                print(f"pending_count={vreport.pending_count}")
+                print(f"running_count={vreport.running_count}")
+                print(f"invalidated_count={vreport.invalidated_count}")
+                print(f"waived_count={vreport.waived_count}")
+                print(f"overall={vreport.overall}")
+                return 0 if vreport.overall in {"PASS", "HOLD"} else 2
+
+            if args.command == "validation-verify":
+                verification = engine.verify(args.mission_id, args.gate_id, actor)
+                print(f"gate_id={verification.gate_id}")
+                print(f"mission_id={verification.mission_id}")
+                print("all_match=" + ("true" if verification.all_match else "false"))
+                print(f"artifact_count={len(verification.artifact_verifications)}")
+                for av in verification.artifact_verifications:
+                    print(f"artifact_id={av.artifact_id}")
+                    print(f"path={av.path}")
+                    print(f"status={av.status}")
+                return 0 if verification.all_match else 2
+
+            if args.command == "validation-invalidate":
+                outcome = engine.invalidate(args.mission_id, args.gate_id, actor)
+                _emit_pese_outcome(outcome)
+                return 0 if outcome.code == "UPDATED" else 2
+
+            if args.command == "validation-start":
+                outcome = engine.start(args.mission_id, args.gate_id, actor)
+                _emit_pese_outcome(outcome)
+                return 0 if outcome.code == "UPDATED" else 2
+
+            artifacts = None
+            if args.artifact:
+                artifacts = [
+                    {
+                        "path": path,
+                        "type": "validation-result",
+                        "retention_class": "mission",
+                    }
+                    for path in args.artifact
+                ]
+            outcome = engine.finish(
+                args.mission_id,
+                args.gate_id,
+                actor,
+                status=args.verdict,
+                artifacts=artifacts,
+                reason=args.reason,
+            )
+            _emit_pese_outcome(outcome)
+            return 0 if outcome.code == "UPDATED" else 2
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -751,6 +892,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         CKSError,
         AEXError,
         AHPError,
+        VALError,
         ValueError,
         OSError,
     ) as error:

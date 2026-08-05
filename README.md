@@ -20,6 +20,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - CKS v1.0 cryptographic key service for HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger for production audit attestation
 - AEX v1.0 agent execution runtime for claiming dispatched assignments, persisting work-product artifacts, and signing execution attestations via CKS
 - AHP v1.0 agent health runtime for append-only, hash-chained heartbeat journals that derive ALIVE, STALLED, and UNKNOWN liveness status
+- VAL v1.0 validation runtime for driving PESE validation gates through their lifecycle, registering SHA-256-bound artifacts, and emitting gate verdicts to the EEF execution journal
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -66,6 +67,12 @@ python -m asc_orchestrator --root . health-heartbeat --agent AGENT:developer:loc
 python -m asc_orchestrator --root . health-status --agent AGENT:developer:local --timeout 300
 python -m asc_orchestrator --root . health-report --mission-id MISSION:example --timeout 300
 python -m asc_orchestrator --root . health-check --mission-id MISSION:example --timeout 300
+python -m asc_orchestrator --root . validation-gates --mission-id MISSION:example
+python -m asc_orchestrator --root . validation-start --mission-id MISSION:example --gate-id GATE:MISSION:example:functional
+python -m asc_orchestrator --root . validation-finish --mission-id MISSION:example --gate-id GATE:MISSION:example:functional --verdict GREEN --artifact validation/qa-result.json
+python -m asc_orchestrator --root . validation-verify --mission-id MISSION:example --gate-id GATE:MISSION:example:functional
+python -m asc_orchestrator --root . validation-invalidate --mission-id MISSION:example --gate-id GATE:MISSION:example:functional
+python -m asc_orchestrator --root . validation-report --mission-id MISSION:example
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -93,6 +100,8 @@ CKS is specified in [CKS v1.0](./docs/CKS_v1.0.md). The `key-*` commands manage 
 AEX is specified in [AEX v1.0](./docs/AEX_v1.0.md). The `aex-*` commands execute the agent work that EEF dispatches: `aex-dispatch` claims a READY assignment and transitions it to IN_PROGRESS, `aex-complete` finishes an IN_PROGRESS assignment by persisting an immutable execution result record (optionally copying artifacts and signing the record via `--key-id` with CKS), `aex-fail` marks a failed assignment terminal, `aex-block`/`aex-unblock` gate an assignment on a precondition, `aex-status` reads the assignment lifecycle snapshot, and `aex-result` loads the persisted execution result record. Result records and copied artifacts live beneath `.project-os/ARTIFACTS/` with IDs percent-encoded for Windows compatibility, and every transition emits an agent-owned event to the EEF execution journal. AEX executes and attests local agent work; it does not schedule, assemble teams, or manage keys.
 
 AHP is specified in [AHP v1.0](./docs/AHP_v1.0.md). The `health-*` commands observe agent liveness: `health-heartbeat` appends a hash-chained heartbeat to an agent's journal, `health-status` derives the ALIVE/STALLED/UNKNOWN status from the freshness of the last heartbeat against a configurable timeout, `health-report` lists the per-agent status for every agent assigned to a mission, and `health-check` exits 2 when any mission agent is STALLED (a signal the M016 recovery engine consumes). Heartbeat journals live beneath `.project-os/HEALTH/agents/` with IDs percent-encoded for Windows compatibility. AHP observes liveness only; it does not execute work, schedule dispatch, or persist general state.
+
+VAL is specified in [VAL v1.0](./docs/VAL_v1.0.md). The `validation-*` commands drive PESE validation gates through their lifecycle: `validation-gates` lists the gates for a mission, `validation-start` transitions a PENDING gate to RUNNING, `validation-finish` records a GREEN/RED/BLOCKED verdict (binding validation artifacts by SHA-256 when GREEN), `validation-verify` compares bound artifact files against their recorded hashes (detecting tampering or deletion), `validation-invalidate` revokes a GREEN verdict when its artifact/repository binding fails, and `validation-report` aggregates a mission's gate status into a PASS/FAIL/HOLD overall. Every gate transition flows through PESE's audited transition API with type `VALIDATION_GATE`, and each verdict emits a `GATE_*` event to the EEF execution journal. Tampered artifacts are a secure halt for mutations; artifact integrity is protected by SHA-256 hashes in PESE state. VAL drives gates and verifies artifacts; it does not execute work, assemble teams, or schedule dispatch.
 
 ## Documentation
 

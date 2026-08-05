@@ -1,6 +1,6 @@
 # Project State
 
-Status: M013_AHP_COMPLETE
+Status: M014_VAL_COMPLETE
 
 ## Product and users
 
@@ -12,7 +12,7 @@ Python 3.14 standard-library runtime; `unittest` test framework; `tomllib` confi
 
 ## Architecture and canonical contracts
 
-ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS. AHP v1.0 is the canonical agent-health contract that records per-agent heartbeat histories and derives ALIVE, STALLED, and UNKNOWN liveness status for stalled-agent detection.
+ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries under `.project-os/COMPANY/DEPARTMENTS/`. PESE v1.0 is the canonical persistent-state contract. TBE v1.0 is the canonical deterministic team-assembly contract integrated with those foundations. MSS v1.0 is the canonical mission-intake contract consumed directly by TBE. EEF v1.0 is the canonical execution-lifecycle contract driving PESE-bound missions through start, schedule, pause, resume, cancel, and complete. CKS v1.0 is the canonical cryptographic key and audit-signing contract providing deterministic HMAC-SHA256 key lifecycle, signing/verification, and a hash-chained signing ledger. AEX v1.0 is the canonical agent-execution contract that claims EEF-dispatched assignments, transitions them through their lifecycle, persists work-product artifacts, and signs execution attestations via CKS. AHP v1.0 is the canonical agent-health contract that records per-agent heartbeat histories and derives ALIVE, STALLED, and UNKNOWN liveness status for stalled-agent detection. VAL v1.0 is the canonical validation contract that drives PESE validation gates through their lifecycle, registers SHA-256-bound validation artifacts, and emits gate verdicts to the EEF execution journal.
 
 ## Verified completed capabilities
 
@@ -40,10 +40,14 @@ ACP v1.0 governs messages and audit records. ACR v1.0 governs registry entries u
 - AHP v1.0 runtime: deterministic, stdlib-only agent health store recording append-only, hash-chained per-agent heartbeat journals under `.project-os/HEALTH/agents/`, with process-safe locking, atomic writes, injectable query time, and read-only chain/sequence/hash validation.
 - AHP v1.0 status model: ALIVE/STALLED/UNKNOWN derived at query time from last-heartbeat age against a configurable timeout; `health-report` and `health-check` read mission `assigned_agent_ids` from PESE state (read-only) and never mutate PESE.
 - AHP CLI commands: `health-heartbeat`, `health-status`, `health-report`, and `health-check` with machine-readable outcomes and deterministic exit codes; `health-check` exits 2 when any mission agent is STALLED.
+- VAL v1.0 runtime: deterministic, stdlib-only validation engine that drives PESE validation gates through their lifecycle (`PENDING → RUNNING → GREEN/RED/BLOCKED`), registers SHA-256-bound validation artifacts, verifies bound artifact files against recorded hashes, and revokes GREEN verdicts when the artifact/repository binding fails.
+- VAL v1.0 PESE/EEF integration: every gate transition flows through `PESEStore.update()` with transition type `VALIDATION_GATE`; each verdict emits a `GATE_*` event (GATE_STARTED, GATE_PASSED, GATE_FAILED, GATE_BLOCKED, GATE_INVALIDATED) to the EEF execution journal; `verify()` provides raw-read per-artifact diagnostics when tampered artifacts make PESE state unloadable.
+- VAL v1.0 tamper policy: tampered artifacts are a secure halt for mutations; invalidation of tampered evidence is an operator recovery action, never a programmatic sweep under the rug; `invalidate()` enforces the binding-failure precondition per PESE spec section 5.3 and raises `BINDING_INTACT` when the binding is sound.
+- VAL CLI commands: `validation-gates`, `validation-start`, `validation-finish`, `validation-verify`, `validation-invalidate`, and `validation-report` with machine-readable outcomes and deterministic exit codes; mutation commands resolve the actor to the gate's designated validator.
 
 ## Active work
 
-No active implementation work. M013 AHP agent health observation is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
+No active implementation work. M014 VAL validation gates and artifact verification is complete; encrypted transport and autonomous workflow scheduling remain outside the current release scope.
 
 ## Incomplete capabilities
 
@@ -51,11 +55,11 @@ Encrypted transport and autonomous workflow scheduling are not yet implemented.
 
 ## Release status
 
-M013 implements the canonical AHP v1.0 agent-health contract on top of the PESE/TBE/MSS/EEF/CKS/AEX foundations, adding liveness observation to the completed local execution loop: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), execution (AEX), and liveness (AHP). AHP records hash-chained heartbeat histories and derives ALIVE, STALLED, and UNKNOWN status, supplying the stalled-agent signal the M016 recovery engine and M019 autonomous scheduler consume. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, agent-execution, and agent-health scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
+M014 implements the canonical VAL v1.0 validation contract on top of the PESE/TBE/MSS/EEF/CKS/AEX/AHP foundations, closing the mission-lifecycle gap: intake (MSS), assembly (TBE), state (PESE), lifecycle (EEF), identity (CKS), execution (AEX), liveness (AHP), and validation (VAL). VAL drives gate verdicts and verifies artifacts, supplying the validation runtime the M017 recovery engine and M019 autonomous scheduler consume to gate mission completion. The release is complete for intake, team-assembly, persistent-state, execution-lifecycle, cryptographic-signing, agent-execution, agent-health, and validation scope; encrypted transport and autonomous workflow scheduling remain intentionally absent.
 
 ## Last verified
 
-2026-08-05 - M013 AHP release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS/AEX plus new AHP unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking AHP), CLI health lifecycle smoke tests (heartbeat → status → report → check), heartbeat hash-chain validation, and STALLED exit-2 verification.
+2026-08-05 - M014 VAL release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS/AEX/AHP plus new VAL unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking VAL), CLI validation lifecycle smoke tests (gates → start → finish GREEN/RED → verify → invalidate → report), EEF event-journal chain verification with GATE_* events, and tamper-detection halt path.
 
 2026-08-05 - M012 AEX release gate passed: full suite (existing PESE/TBE/MSS/EEF/CKS plus new AEX unit and CLI suites), MyPy, Ruff check+format, source compilation, documentation validation (now checking AEX), CLI execution lifecycle smoke tests (start → dispatch → complete/result with artifact + CKS signature, fail, block/unblock), and EEF event-journal chain verification.
 

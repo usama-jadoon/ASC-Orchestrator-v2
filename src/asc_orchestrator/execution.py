@@ -41,6 +41,12 @@ EVENT_TYPES = frozenset(
         "SESSION_CANCELLED",
         "SESSION_COMPLETED",
         "MILESTONE_ADVANCED",
+        # Validation Engine (VAL v1.0) gate events.
+        "GATE_STARTED",
+        "GATE_PASSED",
+        "GATE_FAILED",
+        "GATE_BLOCKED",
+        "GATE_INVALIDATED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"
