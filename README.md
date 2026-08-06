@@ -22,6 +22,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - AHP v1.0 agent health runtime for append-only, hash-chained heartbeat journals that derive ALIVE, STALLED, and UNKNOWN liveness status
 - VAL v1.0 validation runtime for driving PESE validation gates through their lifecycle, registering SHA-256-bound artifacts, and emitting gate verdicts to the EEF execution journal
 - RKM v1.0 risk-management runtime for operating the PESE risk ledger, enforcing the risk status state machine, and implementing the hold mechanism that blocks autonomous execution on HALT / unresolved CRITICAL / declared HIGH block conditions
+- AGC v1.0 agent-lifecycle runtime for operating the PESE agent ledger, enforcing the agent status state machine, dependency environment verification, and the registration → release lifecycle with `AGENT_*` events to the EEF journal
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -83,6 +84,23 @@ python -m asc_orchestrator --root . risk-resolve --risk-id RISK:MISSION:example:
 python -m asc_orchestrator --root . risk-halt --risk-id RISK:MISSION:example:001 --reason "investigation"
 python -m asc_orchestrator --root . risk-check --mission-id MISSION:example
 python -m asc_orchestrator --root . risk-report --mission-id MISSION:example
+python -m asc_orchestrator --root . agent-register --agent AGENT:developer:local --acr-ref ACR:developer:specialist
+python -m asc_orchestrator --root . agent-activate --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-dependency --agent AGENT:developer:local --dep-status VERIFIED --tool python=3.11
+python -m asc_orchestrator --root . agent-ready --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-claim --agent AGENT:developer:local --mission-id MISSION:example --assignment-id ASSIGNMENT:build
+python -m asc_orchestrator --root . agent-complete --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-block --agent AGENT:developer:local --reason "waiting on input"
+python -m asc_orchestrator --root . agent-unblock --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-fail --agent AGENT:developer:local --reason "gate failed"
+python -m asc_orchestrator --root . agent-quarantine --agent AGENT:developer:local --reason "diagnosis"
+python -m asc_orchestrator --root . agent-replace --agent AGENT:developer:local --reason "replacing"
+python -m asc_orchestrator --root . agent-release --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-heartbeat --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-checkpoint --agent AGENT:developer:local --checkpoint-id CHECKPOINT:...
+python -m asc_orchestrator --root . agent-list
+python -m asc_orchestrator --root . agent-status --agent AGENT:developer:local
+python -m asc_orchestrator --root . agent-report
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -114,6 +132,8 @@ AHP is specified in [AHP v1.0](./docs/AHP_v1.0.md). The `health-*` commands obse
 VAL is specified in [VAL v1.0](./docs/VAL_v1.0.md). The `validation-*` commands drive PESE validation gates through their lifecycle: `validation-gates` lists the gates for a mission, `validation-start` transitions a PENDING gate to RUNNING, `validation-finish` records a GREEN/RED/BLOCKED verdict (binding validation artifacts by SHA-256 when GREEN), `validation-verify` compares bound artifact files against their recorded hashes (detecting tampering or deletion), `validation-invalidate` revokes a GREEN verdict when its artifact/repository binding fails, and `validation-report` aggregates a mission's gate status into a PASS/FAIL/HOLD overall. Every gate transition flows through PESE's audited transition API with type `VALIDATION_GATE`, and each verdict emits a `GATE_*` event to the EEF execution journal. Tampered artifacts are a secure halt for mutations; artifact integrity is protected by SHA-256 hashes in PESE state. VAL drives gates and verifies artifacts; it does not execute work, assemble teams, or schedule dispatch.
 
 RKM is specified in [RKM v1.0](./docs/RKM_v1.0.md). The `risk-*` commands operate the deterministic risk ledger over PESE `risk_state`: `risk-open` registers an OPEN risk record, `risk-list`/`risk-status` read risk snapshots (optionally mission-scoped), `risk-mitigate`/`risk-accept`/`risk-resolve`/`risk-halt` transition risks along the OPEN → MITIGATING/ACCEPTED/RESOLVED/HALT state machine, `risk-check` evaluates the hold mechanism (exiting 2 when any HALT risk, unresolved CRITICAL risk, or HIGH risk with a declared block condition blocks autonomous execution), and `risk-report` aggregates a mission-level risk summary. Every risk mutation flows through PESE's audited transition API with type `RISK_STATUS`, and each transition emits a `RISK_*` event to the EEF execution journal. Block conditions for HIGH risks live under the `org.asc.rkm` extension key. RKM operates the risk ledger and hold mechanism; it does not execute work, assemble teams, or schedule dispatch.
+
+AGC is specified in [AGC v1.0](./docs/AGC_v1.0.md). The `agent-*` commands operate the deterministic agent-lifecycle ledger over PESE `agent_state`: `agent-register` creates an agent record in INITIALIZING status, `agent-activate` transitions it to REGISTERED, `agent-dependency` records the 4-field dependency environment state (VERIFIED/MISSING/MISMATCH/UNKNOWN), `agent-ready` transitions REGISTERED → READY only after dependencies verify, `agent-claim`/`agent-complete` claim and release an agent on a mission/assignment, `agent-block`/`agent-unblock` gate an agent on a precondition, `agent-fail`/`agent-quarantine` record interruption state, `agent-replace` transitions a failed/quarantined agent to REPLACED, `agent-release` retires an agent, `agent-heartbeat`/`agent-checkpoint` update liveness and checkpoint references, and `agent-list`/`agent-status`/`agent-report` read lifecycle snapshots. Every agent mutation flows through PESE's audited transition API with type `AGENT_STATUS`, and each transition emits an `AGENT_*` event to the EEF execution journal. Actor authority requires the orchestrator or the agent itself. AGC operates the agent lifecycle ledger; it does not execute work, schedule dispatch, assemble teams, or persist general state.
 
 ## Documentation
 

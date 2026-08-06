@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .aex import AEXError
+from .agent import AGCError
 from .config import ConfigurationError, load_config
 from .execution import EEFError
 from .health import AHPError
@@ -441,6 +442,160 @@ def _parser() -> argparse.ArgumentParser:
             default="AGENT:orchestrator:local",
             help="actor performing the transition",
         )
+    agent_simple = {
+        "agent-activate": "transition an agent INITIALIZING -> REGISTERED",
+        "agent-ready": "transition an agent REGISTERED -> READY",
+        "agent-complete": "transition an agent BUSY -> READY",
+        "agent-unblock": "transition an agent BLOCKED -> READY",
+        "agent-release": "transition an agent to RELEASED",
+    }
+    for name, help_text in agent_simple.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--agent", required=True, help="canonical agent identifier"
+        )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="actor managing the agent",
+        )
+    agent_reason_commands = {
+        "agent-block": "transition an agent READY/BUSY -> BLOCKED",
+        "agent-fail": "transition an agent to FAILED",
+        "agent-quarantine": "transition an agent to QUARANTINED",
+        "agent-replace": "transition an agent QUARANTINED/FAILED -> REPLACED",
+    }
+    for name, help_text in agent_reason_commands.items():
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--agent", required=True, help="canonical agent identifier"
+        )
+        command.add_argument(
+            "--reason", required=True, help="reason for the transition"
+        )
+        command.add_argument(
+            "--actor",
+            default="AGENT:orchestrator:local",
+            help="actor managing the agent",
+        )
+    agent_register = commands.add_parser(
+        "agent-register", help="register a new agent in INITIALIZING status"
+    )
+    agent_register.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_register.add_argument(
+        "--acr-ref", required=True, help="ACR registry reference for the agent"
+    )
+    agent_register.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor registering the agent",
+    )
+    agent_dependency = commands.add_parser(
+        "agent-dependency", help="set the agent's dependency environment state"
+    )
+    agent_dependency.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_dependency.add_argument(
+        "--dep-status",
+        required=True,
+        choices=("VERIFIED", "MISSING", "MISMATCH", "UNKNOWN"),
+        help="dependency environment status",
+    )
+    agent_dependency.add_argument(
+        "--verified-at", help="explicit UTC verification timestamp"
+    )
+    agent_dependency.add_argument(
+        "--tool",
+        action="append",
+        help="tool dependency as name=version (repeatable)",
+    )
+    agent_dependency.add_argument(
+        "--environment",
+        action="append",
+        help="environment dependency as name=value (repeatable)",
+    )
+    agent_dependency.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor managing the agent",
+    )
+    agent_claim = commands.add_parser(
+        "agent-claim", help="transition an agent READY -> BUSY"
+    )
+    agent_claim.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_claim.add_argument(
+        "--mission-id", required=True, help="canonical mission identifier"
+    )
+    agent_claim.add_argument(
+        "--assignment-id", required=True, help="canonical assignment identifier"
+    )
+    agent_claim.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor managing the agent",
+    )
+    agent_heartbeat = commands.add_parser(
+        "agent-heartbeat", help="update the agent's last_heartbeat_at reference"
+    )
+    agent_heartbeat.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_heartbeat.add_argument("--at", help="explicit UTC heartbeat timestamp")
+    agent_heartbeat.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor managing the agent",
+    )
+    agent_checkpoint = commands.add_parser(
+        "agent-checkpoint", help="update the agent's last_checkpoint_id reference"
+    )
+    agent_checkpoint.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_checkpoint.add_argument(
+        "--checkpoint-id", required=True, help="canonical checkpoint identifier"
+    )
+    agent_checkpoint.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor managing the agent",
+    )
+    agent_list = commands.add_parser(
+        "agent-list", help="list agents (optionally filtered)"
+    )
+    agent_list.add_argument("--status", help="filter to a lifecycle status")
+    agent_list.add_argument(
+        "--mission-id", help="filter to a canonical mission identifier"
+    )
+    agent_list.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    agent_status = commands.add_parser(
+        "agent-status", help="read a single agent snapshot"
+    )
+    agent_status.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    agent_status.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    agent_report = commands.add_parser(
+        "agent-report", help="aggregated agent lifecycle summary"
+    )
+    agent_report.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
     return parser
 
 
@@ -1051,6 +1206,159 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Unreachable but keeps type-checker happy.
             return 2  # pragma: no cover
 
+        if args.command.startswith("agent-"):
+            from .agent import AgentLifecycle
+
+            agc_engine = AgentLifecycle(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            agc_actor = getattr(args, "actor", "AGENT:orchestrator:local")
+
+            if args.command == "agent-register":
+                agc_outcome = agc_engine.register(args.agent, args.acr_ref, agc_actor)
+                if agc_outcome.code == "UPDATED":
+                    print(f"agent_id={args.agent}")
+                    print("status=INITIALIZING")
+                    return 0
+                _emit_pese_outcome(agc_outcome)
+                return 2
+
+            if args.command == "agent-list":
+                agc_records = agc_engine.list(
+                    status=getattr(args, "status", None),
+                    mission_id=getattr(args, "mission_id", None),
+                    actor=agc_actor,
+                )
+                print(f"agent_count={len(agc_records)}")
+                for agc_rec in agc_records:
+                    print(f"agent_id={agc_rec.agent_id}")
+                    print(f"status={agc_rec.status}")
+                    print(f"mission_id={agc_rec.mission_id or ''}")
+                    print(f"acr_ref={agc_rec.acr_ref}")
+                return 0
+
+            if args.command == "agent-status":
+                agc_rec = agc_engine.agent_status(args.agent, actor=agc_actor)
+                print(f"agent_id={agc_rec.agent_id}")
+                print(f"status={agc_rec.status}")
+                print(f"mission_id={agc_rec.mission_id or ''}")
+                print(f"assignment_id={agc_rec.assignment_id or ''}")
+                print(f"manifest_version={agc_rec.manifest_version or ''}")
+                print(f"last_heartbeat_at={agc_rec.last_heartbeat_at or ''}")
+                print(f"last_checkpoint_id={agc_rec.last_checkpoint_id or ''}")
+                print(f"acr_ref={agc_rec.acr_ref}")
+                print(f"dep_status={agc_rec.dep_status}")
+                print(f"verified_at={agc_rec.verified_at or ''}")
+                print(
+                    "interruption="
+                    + (
+                        json.dumps(agc_rec.interruption, sort_keys=True)
+                        if agc_rec.interruption
+                        else ""
+                    )
+                )
+                return 0
+
+            if args.command == "agent-report":
+                agc_report = agc_engine.report(actor=agc_actor)
+                print(f"total={agc_report.total}")
+                print(f"initializing_count={agc_report.initializing_count}")
+                print(f"registered_count={agc_report.registered_count}")
+                print(f"ready_count={agc_report.ready_count}")
+                print(f"busy_count={agc_report.busy_count}")
+                print(f"blocked_count={agc_report.blocked_count}")
+                print(f"failed_count={agc_report.failed_count}")
+                print(f"quarantined_count={agc_report.quarantined_count}")
+                print(f"replaced_count={agc_report.replaced_count}")
+                print(f"released_count={agc_report.released_count}")
+                return 0
+
+            if args.command == "agent-dependency":
+                tools: dict[str, str] = {}
+                if args.tool:
+                    for item in args.tool:
+                        name, sep, version = item.partition("=")
+                        if sep and name:
+                            tools[name] = version
+                environment: dict[str, str] = {}
+                if args.environment:
+                    for item in args.environment:
+                        name, sep, value = item.partition("=")
+                        if sep and name:
+                            environment[name] = value
+                agc_outcome = agc_engine.set_dependency(
+                    args.agent,
+                    args.dep_status,
+                    agc_actor,
+                    verified_at=getattr(args, "verified_at", None),
+                    tool_dependencies=tools,
+                    environment_dependencies=environment,
+                )
+                if agc_outcome.code == "UPDATED":
+                    print(f"agent_id={args.agent}")
+                    print(f"dep_status={args.dep_status}")
+                    return 0
+                _emit_pese_outcome(agc_outcome)
+                return 2
+
+            if args.command == "agent-heartbeat":
+                agc_outcome = agc_engine.heartbeat(
+                    args.agent, agc_actor, at=getattr(args, "at", None)
+                )
+                if agc_outcome.code == "UPDATED":
+                    print(f"agent_id={args.agent}")
+                    return 0
+                _emit_pese_outcome(agc_outcome)
+                return 2
+
+            if args.command == "agent-checkpoint":
+                agc_outcome = agc_engine.update_checkpoint(
+                    args.agent, args.checkpoint_id, agc_actor
+                )
+                if agc_outcome.code == "UPDATED":
+                    print(f"agent_id={args.agent}")
+                    print(f"checkpoint_id={args.checkpoint_id}")
+                    return 0
+                _emit_pese_outcome(agc_outcome)
+                return 2
+
+            if args.command == "agent-claim":
+                agc_outcome = agc_engine.claim(
+                    args.agent, args.mission_id, args.assignment_id, agc_actor
+                )
+                if agc_outcome.code == "UPDATED":
+                    print(f"agent_id={args.agent}")
+                    print("status=BUSY")
+                    return 0
+                _emit_pese_outcome(agc_outcome)
+                return 2
+
+            agent_methods = {
+                "agent-activate": lambda: agc_engine.activate(args.agent, agc_actor),
+                "agent-ready": lambda: agc_engine.ready(args.agent, agc_actor),
+                "agent-complete": lambda: agc_engine.complete(args.agent, agc_actor),
+                "agent-block": lambda: agc_engine.block(
+                    args.agent, agc_actor, args.reason
+                ),
+                "agent-unblock": lambda: agc_engine.unblock(args.agent, agc_actor),
+                "agent-fail": lambda: agc_engine.fail(
+                    args.agent, agc_actor, args.reason
+                ),
+                "agent-quarantine": lambda: agc_engine.quarantine(
+                    args.agent, agc_actor, args.reason
+                ),
+                "agent-replace": lambda: agc_engine.replace(
+                    args.agent, agc_actor, args.reason
+                ),
+                "agent-release": lambda: agc_engine.release(args.agent, agc_actor),
+            }
+            agc_outcome = agent_methods[args.command]()
+            if agc_outcome.code == "UPDATED":
+                print(f"agent_id={args.agent}")
+                return 0
+            _emit_pese_outcome(agc_outcome)
+            return 2
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -1123,6 +1431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         AHPError,
         VALError,
         RiskError,
+        AGCError,
         ValueError,
         OSError,
     ) as error:

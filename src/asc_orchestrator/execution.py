@@ -53,6 +53,20 @@ EVENT_TYPES = frozenset(
         "RISK_ACCEPTED",
         "RISK_RESOLVED",
         "RISK_HALTED",
+        # Agent Lifecycle Control (AGC v1.0) agent events.
+        "AGENT_REGISTERED",
+        "AGENT_ACTIVATED",
+        "AGENT_READY",
+        "AGENT_BUSY",
+        "AGENT_BLOCKED",
+        "AGENT_UNBLOCKED",
+        "AGENT_FAILED",
+        "AGENT_QUARANTINED",
+        "AGENT_REPLACED",
+        "AGENT_RELEASED",
+        "AGENT_DEPENDENCY",
+        "AGENT_HEARTBEAT",
+        "AGENT_CHECKPOINTED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"
