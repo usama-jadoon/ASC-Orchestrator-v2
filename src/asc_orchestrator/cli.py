@@ -14,6 +14,7 @@ from .execution import EEFError
 from .health import AHPError
 from .keys import CKSError
 from .pese import PESEError, PESEOutcome, PESEStore
+from .recovery import RecoveryError
 from .risk import RiskError
 from .validation import VALError
 
@@ -592,6 +593,69 @@ def _parser() -> argparse.ArgumentParser:
         "agent-report", help="aggregated agent lifecycle summary"
     )
     agent_report.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    rec_diagnose = commands.add_parser(
+        "recovery-diagnose", help="pre-flight assessment of a potentially failing agent"
+    )
+    rec_diagnose.add_argument(
+        "--agent", required=True, help="canonical agent identifier"
+    )
+    rec_diagnose.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    rec_run = commands.add_parser(
+        "recovery-run", help="execute the full REC v1.0 recovery sequence"
+    )
+    rec_run.add_argument("--agent", required=True, help="canonical agent identifier")
+    rec_run.add_argument(
+        "--trigger",
+        choices=("FAILED", "QUARANTINED", "STALLED"),
+        help="override the derived recovery trigger",
+    )
+    rec_run.add_argument(
+        "--replacement",
+        help="override the suggested replacement agent identifier",
+    )
+    rec_run.add_argument("--mission-id", help="override the mission identifier")
+    rec_run.add_argument("--assignment-id", help="override the assignment identifier")
+    rec_run.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor managing the recovery",
+    )
+    rec_status = commands.add_parser(
+        "recovery-status", help="read a single recovery record"
+    )
+    rec_status.add_argument(
+        "--recovery-id", required=True, help="canonical recovery identifier"
+    )
+    rec_status.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    rec_list = commands.add_parser(
+        "recovery-list", help="list recovery records (optionally filtered)"
+    )
+    rec_list.add_argument(
+        "--mission-id", help="filter to a canonical mission identifier"
+    )
+    rec_list.add_argument("--agent-id", help="filter to a canonical agent identifier")
+    rec_list.add_argument("--status", help="filter to a recovery status")
+    rec_list.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    rec_report = commands.add_parser(
+        "recovery-report", help="aggregated recovery summary"
+    )
+    rec_report.add_argument(
         "--actor",
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
@@ -1359,6 +1423,92 @@ def main(argv: Sequence[str] | None = None) -> int:
             _emit_pese_outcome(agc_outcome)
             return 2
 
+        if args.command.startswith("recovery-"):
+            from .recovery import RecoveryEngine
+
+            rec_engine = RecoveryEngine(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            rec_actor = getattr(args, "actor", "AGENT:orchestrator:local")
+
+            if args.command == "recovery-diagnose":
+                rec_diag = rec_engine.diagnose(args.agent, rec_actor)
+                print(f"agent_id={rec_diag.agent_id}")
+                print(f"agent_status={rec_diag.agent_status}")
+                print(f"health_status={rec_diag.health_status or ''}")
+                print(f"trigger={rec_diag.trigger or ''}")
+                print(f"recoverable={'true' if rec_diag.recoverable else 'false'}")
+                print(f"reason={rec_diag.reason}")
+                print(f"mission_id={rec_diag.mission_id or ''}")
+                print(f"assignment_id={rec_diag.assignment_id or ''}")
+                print(f"acr_ref={rec_diag.acr_ref}")
+                print(
+                    f"suggested_replacement_id={rec_diag.suggested_replacement_id or ''}"
+                )
+                return 0
+
+            if args.command == "recovery-run":
+                rec_result = rec_engine.run(
+                    args.agent,
+                    rec_actor,
+                    trigger=getattr(args, "trigger", None),
+                    replacement_agent_id=getattr(args, "replacement", None),
+                    mission_id=getattr(args, "mission_id", None),
+                    assignment_id=getattr(args, "assignment_id", None),
+                )
+                print(f"recovery_id={rec_result.recovery_id}")
+                print(f"status={rec_result.status}")
+                print(f"replacement_agent_id={rec_result.replacement_agent_id}")
+                print(f"actions={','.join(rec_result.actions)}")
+                print(f"mission_id={rec_result.mission_id or ''}")
+                print(f"assignment_id={rec_result.assignment_id or ''}")
+                print(f"error={rec_result.error or ''}")
+                return 0 if rec_result.status == "COMPLETED" else 2
+
+            if args.command == "recovery-status":
+                rec_record = rec_engine.status(args.recovery_id, actor=rec_actor)
+                print(f"recovery_id={rec_record.recovery_id}")
+                print(f"format={rec_record.format}")
+                print(f"agent_id={rec_record.agent_id}")
+                print(f"trigger={rec_record.trigger}")
+                print(f"mission_id={rec_record.mission_id or ''}")
+                print(f"assignment_id={rec_record.assignment_id or ''}")
+                print(f"acr_ref={rec_record.acr_ref}")
+                print(f"replacement_agent_id={rec_record.replacement_agent_id}")
+                print(f"status={rec_record.status}")
+                print(f"actions={','.join(rec_record.actions)}")
+                print(f"created_at={rec_record.created_at}")
+                print(f"updated_at={rec_record.updated_at or ''}")
+                print(f"completed_at={rec_record.completed_at or ''}")
+                print(f"error={rec_record.error or ''}")
+                return 0
+
+            if args.command == "recovery-list":
+                rec_records = rec_engine.list(
+                    mission_id=getattr(args, "mission_id", None),
+                    agent_id=getattr(args, "agent_id", None),
+                    status=getattr(args, "status", None),
+                    actor=rec_actor,
+                )
+                print(f"recovery_count={len(rec_records)}")
+                for rec_record in rec_records:
+                    print(f"recovery_id={rec_record.recovery_id}")
+                    print(f"agent_id={rec_record.agent_id}")
+                    print(f"status={rec_record.status}")
+                    print(f"mission_id={rec_record.mission_id or ''}")
+                    print(f"replacement_agent_id={rec_record.replacement_agent_id}")
+                return 0
+
+            if args.command == "recovery-report":
+                rec_report = rec_engine.report(actor=rec_actor)
+                print(f"total={rec_report.total}")
+                print(f"in_progress_count={rec_report.in_progress_count}")
+                print(f"completed_count={rec_report.completed_count}")
+                print(f"failed_count={rec_report.failed_count}")
+                return 0
+            # Unreachable but keeps type-checker happy.
+            return 2  # pragma: no cover
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -1432,6 +1582,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         VALError,
         RiskError,
         AGCError,
+        RecoveryError,
         ValueError,
         OSError,
     ) as error:

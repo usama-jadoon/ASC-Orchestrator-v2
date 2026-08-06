@@ -23,6 +23,7 @@ This repository serves as the foundation for the ASC Orchestrator v2, containing
 - VAL v1.0 validation runtime for driving PESE validation gates through their lifecycle, registering SHA-256-bound artifacts, and emitting gate verdicts to the EEF execution journal
 - RKM v1.0 risk-management runtime for operating the PESE risk ledger, enforcing the risk status state machine, and implementing the hold mechanism that blocks autonomous execution on HALT / unresolved CRITICAL / declared HIGH block conditions
 - AGC v1.0 agent-lifecycle runtime for operating the PESE agent ledger, enforcing the agent status state machine, dependency environment verification, and the registration → release lifecycle with `AGENT_*` events to the EEF journal
+- REC v1.0 recovery runtime for deterministic agent recovery — a single `recovery-run` that automates quarantine → release → register replacement → activate → dependency VERIFIED → ready → claim when an agent fails or stalls, with a durable recovery ledger over PESE `recovery_state` and `RECOVERY_*` events to the EEF journal
 - Local configuration and CLI validation commands
 - JSON ACR department registry entries and deterministic registry loading
 - Standard-library automated tests
@@ -101,6 +102,11 @@ python -m asc_orchestrator --root . agent-checkpoint --agent AGENT:developer:loc
 python -m asc_orchestrator --root . agent-list
 python -m asc_orchestrator --root . agent-status --agent AGENT:developer:local
 python -m asc_orchestrator --root . agent-report
+python -m asc_orchestrator --root . recovery-diagnose --agent AGENT:developer:local
+python -m asc_orchestrator --root . recovery-run --agent AGENT:developer:local
+python -m asc_orchestrator --root . recovery-status --recovery-id RECOVERY:0001
+python -m asc_orchestrator --root . recovery-list
+python -m asc_orchestrator --root . recovery-report
 ```
 
 `asc-orchestrator.toml` is the canonical local runtime configuration. ACP audit records are written beneath `.project-os/AUDIT/`; ACR entries are loaded from `.project-os/COMPANY/DEPARTMENTS/`.
@@ -134,6 +140,8 @@ VAL is specified in [VAL v1.0](./docs/VAL_v1.0.md). The `validation-*` commands 
 RKM is specified in [RKM v1.0](./docs/RKM_v1.0.md). The `risk-*` commands operate the deterministic risk ledger over PESE `risk_state`: `risk-open` registers an OPEN risk record, `risk-list`/`risk-status` read risk snapshots (optionally mission-scoped), `risk-mitigate`/`risk-accept`/`risk-resolve`/`risk-halt` transition risks along the OPEN → MITIGATING/ACCEPTED/RESOLVED/HALT state machine, `risk-check` evaluates the hold mechanism (exiting 2 when any HALT risk, unresolved CRITICAL risk, or HIGH risk with a declared block condition blocks autonomous execution), and `risk-report` aggregates a mission-level risk summary. Every risk mutation flows through PESE's audited transition API with type `RISK_STATUS`, and each transition emits a `RISK_*` event to the EEF execution journal. Block conditions for HIGH risks live under the `org.asc.rkm` extension key. RKM operates the risk ledger and hold mechanism; it does not execute work, assemble teams, or schedule dispatch.
 
 AGC is specified in [AGC v1.0](./docs/AGC_v1.0.md). The `agent-*` commands operate the deterministic agent-lifecycle ledger over PESE `agent_state`: `agent-register` creates an agent record in INITIALIZING status, `agent-activate` transitions it to REGISTERED, `agent-dependency` records the 4-field dependency environment state (VERIFIED/MISSING/MISMATCH/UNKNOWN), `agent-ready` transitions REGISTERED → READY only after dependencies verify, `agent-claim`/`agent-complete` claim and release an agent on a mission/assignment, `agent-block`/`agent-unblock` gate an agent on a precondition, `agent-fail`/`agent-quarantine` record interruption state, `agent-replace` transitions a failed/quarantined agent to REPLACED, `agent-release` retires an agent, `agent-heartbeat`/`agent-checkpoint` update liveness and checkpoint references, and `agent-list`/`agent-status`/`agent-report` read lifecycle snapshots. Every agent mutation flows through PESE's audited transition API with type `AGENT_STATUS`, and each transition emits an `AGENT_*` event to the EEF execution journal. Actor authority requires the orchestrator or the agent itself. AGC operates the agent lifecycle ledger; it does not execute work, schedule dispatch, assemble teams, or persist general state.
+
+REC is specified in [REC v1.0](./docs/REC_v1.0.md). The `recovery-*` commands automate the deterministic agent-recovery sequence over PESE `recovery_state`: `recovery-diagnose` runs a read-only pre-flight assessment deriving the recovery trigger (FAILED / QUARANTINED from AGC status, STALLED from AHP liveness), `recovery-run` orchestrates quarantine → release → register replacement → activate → dependency VERIFIED → ready → claim (skipping claim when no assignment exists) and persists a durable recovery ledger record, `recovery-status` reads a single recovery record, `recovery-list` enumerates recovery records (optionally mission-, agent-, or status-filtered), and `recovery-report` aggregates the recovery ledger. Every recovery-ledger mutation flows through PESE's audited transition API with type `RECOVERY_STATUS` (a mandatory FAILURE checkpoint only when a recovery FAILS), and each transition emits a `RECOVERY_*` event to the EEF execution journal. REC orchestrates recovery by calling AGC lifecycle transitions and reading AHP liveness; it does not define new lifecycle states, execute work, assemble teams, or schedule dispatch.
 
 ## Documentation
 

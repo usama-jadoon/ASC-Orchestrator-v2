@@ -57,7 +57,7 @@ MANDATORY_CHECKPOINTS = {
     },
     "REPO_HEAD": {"*": "COMMIT"},
     "AGENT_STATUS": {"FAILED": "FAILURE", "QUARANTINED": "FAILURE"},
-    "RECOVERY_STATUS": {"*": "FAILURE"},
+    "RECOVERY_STATUS": {"FAILED": "FAILURE"},
 }
 PRIORITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -322,6 +322,7 @@ class PESEStore:
             "validation_state": {"gates": {}, "artifacts": {}},
             "risk_state": {"risks": {}},
             "agent_state": {"agents": {}},
+            "recovery_state": {"recoveries": {}},
             "extensions": {},
         }
 
@@ -1299,9 +1300,12 @@ class PESEStore:
             "validation_state",
             "risk_state",
             "agent_state",
+            "recovery_state",
             "extensions",
         }
-        required = allowed - {"extensions"}
+        # recovery_state is optional so states initialized before REC v1.0
+        # (without the recovery ledger) continue to validate.
+        required = allowed - {"extensions", "recovery_state"}
         if (
             not isinstance(state, Mapping)
             or not required <= set(state)

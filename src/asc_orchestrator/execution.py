@@ -67,6 +67,10 @@ EVENT_TYPES = frozenset(
         "AGENT_DEPENDENCY",
         "AGENT_HEARTBEAT",
         "AGENT_CHECKPOINTED",
+        # Recovery Engine (REC v1.0) recovery events.
+        "RECOVERY_STARTED",
+        "RECOVERY_COMPLETED",
+        "RECOVERY_FAILED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"
