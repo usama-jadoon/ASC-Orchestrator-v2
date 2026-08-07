@@ -809,6 +809,10 @@ def _parser() -> argparse.ArgumentParser:
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
     )
+    commands.add_parser(
+        "release",
+        help="verify production-release readiness of the source tree (REL v1.0)",
+    )
     return parser
 
 
@@ -870,6 +874,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"audit_dir={config.audit_dir}")
             print(f"protocol_version={config.protocol_version}")
             return 0
+
+        if args.command == "release":
+            from .release import render, verify
+
+            release_report = verify(config.repository_root)
+            for line in render(release_report):
+                print(line)
+            return 0 if release_report.passed else 2
 
         if args.command == "acp":
             from .acp import parse_message

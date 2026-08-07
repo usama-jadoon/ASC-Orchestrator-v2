@@ -1,4 +1,4 @@
-"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, CKS, AEX, AHP, VAL, RKM, AGC, REC, ETR, and AWS contracts."""
+"""Validate the documentation that defines the shipped PESE, TBE, MSS, EEF, CKS, AEX, AHP, VAL, RKM, AGC, REC, ETR, AWS, and REL contracts."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ AGC = ROOT / "docs" / "AGC_v1.0.md"
 REC = ROOT / "docs" / "REC_v1.0.md"
 ETR = ROOT / "docs" / "ETR_v1.0.md"
 AWS = ROOT / "docs" / "AWS_v1.0.md"
+REL = ROOT / "docs" / "REL_v1.0.md"
 
 REQUIRED_PESE_HEADINGS = (
     "## 2. Canonical persistence model",
@@ -165,6 +166,19 @@ REQUIRED_AWS_HEADINGS = (
     "## 12. IMPLEMENTATION GATES",
 )
 
+REQUIRED_REL_HEADINGS = (
+    "## 2. RELEASE CRITERIA",
+    "## 3. VERSIONING",
+    "## 4. RELEASE CONTRACT SCHEMA",
+    "## 5. RELEASE VERIFICATION",
+    "## 6. RELEASE GATES",
+    "## 7. CLI REFERENCE",
+    "## 8. ERROR HANDLING",
+    "## 9. DISTRIBUTION",
+    "## 10. COMPATIBILITY",
+    "## 12. IMPLEMENTATION GATES",
+)
+
 
 def main() -> int:
     """Return nonzero when a canonical contract or CLI invariant is absent."""
@@ -183,6 +197,7 @@ def main() -> int:
     rec = REC.read_text(encoding="utf-8")
     etr = ETR.read_text(encoding="utf-8")
     aws = AWS.read_text(encoding="utf-8")
+    rel = REL.read_text(encoding="utf-8")
     errors: list[str] = []
 
     for command in (
@@ -269,6 +284,7 @@ def main() -> int:
         "scheduler-cycle",
         "scheduler-list",
         "scheduler-report",
+        "release",
     ):
         if f" {command}" not in readme:
             errors.append(f"README does not document the `{command}` command")
@@ -311,6 +327,9 @@ def main() -> int:
     for heading in REQUIRED_AWS_HEADINGS:
         if heading not in aws:
             errors.append(f"AWS specification is missing: {heading}")
+    for heading in REQUIRED_REL_HEADINGS:
+        if heading not in rel:
+            errors.append(f"REL specification is missing: {heading}")
     if "**END OF SPECIFICATION" not in pese:
         errors.append("PESE specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in tbe:
@@ -337,6 +356,8 @@ def main() -> int:
         errors.append("ETR specification does not contain its terminal marker")
     if "**END OF SPECIFICATION" not in aws:
         errors.append("AWS specification does not contain its terminal marker")
+    if "**END OF SPECIFICATION" not in rel:
+        errors.append("REL specification does not contain its terminal marker")
 
     fences = re.findall(r"```json\n(.*?)\n```", pese, flags=re.DOTALL)
     if not fences:
@@ -446,6 +467,15 @@ def main() -> int:
         except json.JSONDecodeError as error:
             errors.append(f"AWS JSON example {index} is invalid: {error.msg}")
 
+    rel_fences = re.findall(r"```json\n(.*?)\n```", rel, flags=re.DOTALL)
+    if not rel_fences:
+        errors.append("REL specification has no JSON examples")
+    for index, document in enumerate(rel_fences, start=1):
+        try:
+            json.loads(document)
+        except json.JSONDecodeError as error:
+            errors.append(f"REL JSON example {index} is invalid: {error.msg}")
+
     if errors:
         print("documentation=FAIL")
         print("\\n".join(errors))
@@ -475,6 +505,8 @@ def main() -> int:
     print(f"etr_json_examples={len(etr_fences)}")
     print(f"aws_required_headings={len(REQUIRED_AWS_HEADINGS)}")
     print(f"aws_json_examples={len(aws_fences)}")
+    print(f"rel_required_headings={len(REQUIRED_REL_HEADINGS)}")
+    print(f"rel_json_examples={len(rel_fences)}")
     return 0
 
 
