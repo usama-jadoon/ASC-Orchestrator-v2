@@ -10,6 +10,7 @@ from pathlib import Path
 from .aex import AEXError
 from .agent import AGCError
 from .config import ConfigurationError, load_config
+from .etr import EtrError
 from .execution import EEFError
 from .health import AHPError
 from .keys import CKSError
@@ -656,6 +657,94 @@ def _parser() -> argparse.ArgumentParser:
         "recovery-report", help="aggregated recovery summary"
     )
     rec_report.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_bind = commands.add_parser(
+        "etr-bind-channel", help="bind an ACTIVE transport channel to a CKS key"
+    )
+    etr_bind.add_argument("--from", dest="from_id", required=True, help="sender id")
+    etr_bind.add_argument("--to", dest="to_id", required=True, help="recipient id")
+    etr_bind.add_argument(
+        "--key-id", required=True, help="canonical CKS key identifier"
+    )
+    etr_bind.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_revoke = commands.add_parser(
+        "etr-revoke-channel", help="revoke an ACTIVE transport channel"
+    )
+    etr_revoke.add_argument("--channel-id", required=True, help="channel identifier")
+    etr_revoke.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_channel = commands.add_parser(
+        "etr-channel", help="read a single transport channel snapshot"
+    )
+    etr_channel.add_argument("--channel-id", required=True, help="channel identifier")
+    etr_channel.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_channels = commands.add_parser(
+        "etr-list-channels", help="list transport channels (optionally filtered)"
+    )
+    etr_channels.add_argument("--from", dest="from_id", help="filter to a sender id")
+    etr_channels.add_argument("--to", dest="to_id", help="filter to a recipient id")
+    etr_channels.add_argument("--status", help="filter to a channel status")
+    etr_channels.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_seal = commands.add_parser(
+        "etr-seal", help="seal a payload file into a ChaCha20-Poly1305 envelope"
+    )
+    etr_seal.add_argument("--file", required=True, help="payload file to seal")
+    etr_seal.add_argument("--key-id", help="canonical CKS key identifier")
+    etr_seal.add_argument("--channel-id", help="ACTIVE transport channel to seal via")
+    etr_seal.add_argument("--message-type", help="ACP message type of the payload")
+    etr_seal.add_argument("--from", dest="from_id", help="sender id override")
+    etr_seal.add_argument("--to", dest="to_id", help="recipient id override")
+    etr_seal.add_argument("--mission-id", help="mission correlation identifier")
+    etr_seal.add_argument("--correlation-id", help="message correlation identifier")
+    etr_seal.add_argument("--output", help="envelope JSON output path")
+    etr_seal.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_open = commands.add_parser(
+        "etr-open", help="authenticate and open an envelope (id or envelope file)"
+    )
+    etr_open.add_argument(
+        "--envelope", required=True, help="envelope id or envelope JSON file path"
+    )
+    etr_open.add_argument("--output", help="plaintext output path")
+    etr_open.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_envs = commands.add_parser(
+        "etr-list-envelopes", help="list sealed envelopes (optionally filtered)"
+    )
+    etr_envs.add_argument("--key-id", help="filter to a CKS key identifier")
+    etr_envs.add_argument("--message-type", help="filter to a message type")
+    etr_envs.add_argument("--status", help="filter to an envelope status")
+    etr_envs.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    etr_report = commands.add_parser("etr-report", help="aggregated transport summary")
+    etr_report.add_argument(
         "--actor",
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
@@ -1509,6 +1598,154 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Unreachable but keeps type-checker happy.
             return 2  # pragma: no cover
 
+        if args.command.startswith("etr-"):
+            from pathlib import Path as _Path
+
+            from .etr import EncryptedTransport
+
+            etr_engine = EncryptedTransport(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            etr_actor = getattr(args, "actor", "AGENT:orchestrator:local")
+
+            if args.command == "etr-bind-channel":
+                channel = etr_engine.bind_channel(
+                    args.from_id, args.to_id, args.key_id, etr_actor
+                )
+                print(f"channel_id={channel.channel_id}")
+                print(f"format={channel.format}")
+                print(f"from_id={channel.from_id or ''}")
+                print(f"to_id={channel.to_id or ''}")
+                print(f"key_id={channel.key_id}")
+                print(f"status={channel.status}")
+                print(f"created_at={channel.created_at}")
+                return 0
+
+            if args.command == "etr-revoke-channel":
+                channel = etr_engine.revoke_channel(args.channel_id, etr_actor)
+                print(f"channel_id={channel.channel_id}")
+                print(f"status={channel.status}")
+                print(f"revoked_at={channel.revoked_at or ''}")
+                return 0
+
+            if args.command == "etr-channel":
+                channel = etr_engine.channel(args.channel_id, etr_actor)
+                print(f"channel_id={channel.channel_id}")
+                print(f"format={channel.format}")
+                print(f"from_id={channel.from_id or ''}")
+                print(f"to_id={channel.to_id or ''}")
+                print(f"key_id={channel.key_id}")
+                print(f"status={channel.status}")
+                print(f"created_at={channel.created_at}")
+                print(f"updated_at={channel.updated_at or ''}")
+                print(f"revoked_at={channel.revoked_at or ''}")
+                return 0
+
+            if args.command == "etr-list-channels":
+                channels = etr_engine.list_channels(
+                    from_id=getattr(args, "from_id", None),
+                    to_id=getattr(args, "to_id", None),
+                    status=getattr(args, "status", None),
+                    actor=etr_actor,
+                )
+                print(f"channel_count={len(channels)}")
+                for channel in channels:
+                    print(f"channel_id={channel.channel_id}")
+                    print(f"from_id={channel.from_id or ''}")
+                    print(f"to_id={channel.to_id or ''}")
+                    print(f"key_id={channel.key_id}")
+                    print(f"status={channel.status}")
+                return 0
+
+            if args.command == "etr-seal":
+                payload_path = _Path(args.file)
+                if not payload_path.is_absolute():
+                    payload_path = config.repository_root / payload_path
+                if args.key_id is None and args.channel_id is None:
+                    raise EtrError(
+                        "KEY_REQUIRED",
+                        "exactly one of --key-id or --channel-id is required",
+                    )
+                if args.output:
+                    output_path = _Path(args.output)
+                    if not output_path.is_absolute():
+                        output_path = config.repository_root / output_path
+                else:
+                    output_path = _Path(str(payload_path) + ".etr")
+                envelope = etr_engine.seal_file(
+                    payload_path,
+                    key_id=args.key_id,
+                    channel_id=args.channel_id,
+                    message_type=getattr(args, "message_type", None),
+                    from_id=getattr(args, "from_id", None),
+                    to_id=getattr(args, "to_id", None),
+                    mission_id=getattr(args, "mission_id", None),
+                    correlation_id=getattr(args, "correlation_id", None),
+                    output=output_path,
+                    actor=etr_actor,
+                )
+                print(f"envelope_id={envelope.envelope_id}")
+                print(f"key_id={envelope.key_id}")
+                print(f"status={envelope.status}")
+                print(f"plaintext_sha256={envelope.plaintext_sha256}")
+                print(f"envelope_path={output_path}")
+                return 0
+
+            if args.command == "etr-open":
+                open_output: Path | None = None
+                if args.output:
+                    open_output = _Path(args.output)
+                    if not open_output.is_absolute():
+                        open_output = config.repository_root / open_output
+                envelope_arg = args.envelope
+                envelope_path = _Path(envelope_arg)
+                if not envelope_path.is_absolute():
+                    envelope_path = config.repository_root / envelope_path
+                if envelope_path.exists():
+                    import json as _json
+
+                    record = _json.loads(envelope_path.read_text(encoding="utf-8"))
+                    unsealed = etr_engine.open(record, actor=etr_actor)
+                    print(f"envelope_id={unsealed.envelope_id}")
+                else:
+                    unsealed = etr_engine.open(envelope_arg, actor=etr_actor)
+                    print(f"envelope_id={unsealed.envelope_id}")
+                print(f"key_id={unsealed.key_id}")
+                print("status=OPENED")
+                print(f"plaintext_sha256={unsealed.plaintext_sha256}")
+                if open_output:
+                    open_output.write_bytes(unsealed.payload)
+                    print(f"output_path={open_output}")
+                return 0
+
+            if args.command == "etr-list-envelopes":
+                envelopes = etr_engine.list_envelopes(
+                    key_id=getattr(args, "key_id", None),
+                    message_type=getattr(args, "message_type", None),
+                    status=getattr(args, "status", None),
+                    actor=etr_actor,
+                )
+                print(f"envelope_count={len(envelopes)}")
+                for envelope in envelopes:
+                    print(f"envelope_id={envelope.envelope_id}")
+                    print(f"key_id={envelope.key_id}")
+                    print(f"message_type={envelope.message_type or ''}")
+                    print(f"status={envelope.status}")
+                return 0
+
+            if args.command == "etr-report":
+                transport_report = etr_engine.report(actor=etr_actor)
+                print(f"channels_total={transport_report.channels_total}")
+                print(f"channels_active={transport_report.channels_active}")
+                print(f"channels_revoked={transport_report.channels_revoked}")
+                print(f"envelopes_total={transport_report.envelopes_total}")
+                print(f"envelopes_sealed={transport_report.envelopes_sealed}")
+                print(f"envelopes_opened={transport_report.envelopes_opened}")
+                print(f"envelopes_auth_failed={transport_report.envelopes_auth_failed}")
+                return 0
+            # Unreachable but keeps type-checker happy.
+            return 2  # pragma: no cover
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -1583,6 +1820,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         RiskError,
         AGCError,
         RecoveryError,
+        EtrError,
         ValueError,
         OSError,
     ) as error:

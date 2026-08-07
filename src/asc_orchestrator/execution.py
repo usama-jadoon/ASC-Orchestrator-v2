@@ -71,6 +71,12 @@ EVENT_TYPES = frozenset(
         "RECOVERY_STARTED",
         "RECOVERY_COMPLETED",
         "RECOVERY_FAILED",
+        # Encrypted Transport (ETR v1.0) transport events.
+        "ETR_CHANNEL_BOUND",
+        "ETR_CHANNEL_REVOKED",
+        "ETR_SEALED",
+        "ETR_UNSEALED",
+        "ETR_AUTH_FAILED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"

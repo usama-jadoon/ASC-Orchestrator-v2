@@ -323,6 +323,7 @@ class PESEStore:
             "risk_state": {"risks": {}},
             "agent_state": {"agents": {}},
             "recovery_state": {"recoveries": {}},
+            "transport_state": {"channels": {}, "envelopes": {}},
             "extensions": {},
         }
 
@@ -1301,11 +1302,12 @@ class PESEStore:
             "risk_state",
             "agent_state",
             "recovery_state",
+            "transport_state",
             "extensions",
         }
-        # recovery_state is optional so states initialized before REC v1.0
-        # (without the recovery ledger) continue to validate.
-        required = allowed - {"extensions", "recovery_state"}
+        # recovery_state and transport_state are optional so states initialized
+        # before REC v1.0 / ETR v1.0 continue to validate.
+        required = allowed - {"extensions", "recovery_state", "transport_state"}
         if (
             not isinstance(state, Mapping)
             or not required <= set(state)
