@@ -15,9 +15,9 @@
 - Reversal path: Add a versioned adapter or migration after a separately approved format/runtime decision.
 
 ### Decision
-- Context:
-- Choice:
-- Reason:
-- Consequences:
-- Reversal path:
+- Context: The ASC stack had no top-level orchestration runtime that evaluates full system state and produces a single deterministic scheduling decision per tick.
+- Choice: Implement AWS v1.0 as a deterministic, stdlib-only scheduler that evaluates PESE, EEF, AGC, AHP, REC, RKM, VAL, CKS, and ETR state and produces one prioritized decision (HOLD, RECOVER, START_MISSION, DISPATCH, VALIDATE, COMPLETE_MISSION, MONITOR_HEALTH, IDLE) per tick.
+- Reason: Operators needed a machine-verifiable way to run a single deterministic decision loop that covers the entire ASC system state; the existing runtimes (AGC, EEF, AEX, VAL, RKM, REC, ETR) each owned their domain but no single entity orchestrated across them.
+- Consequences: AWS adds scheduler config and cycle records to existing PESE state without modifying any prior contract; the SCHEDULER_STATUS transition type passes PESE's legal-transition validation as an unknown kind (same pattern as AGC's AGENT_STATUS, RKM's RISK_STATUS, VAL's VALIDATION_GATE, REC's RECOVERY_STATUS, and ETR's TRANSPORT_STATUS); the org.asc.aws extension key is optional in PESE state-shape validation.
+- Reversal path: Remove the org.asc.aws extension key and SCHEDULER_* events; revert aws.py, the seven scheduler-* CLI subcommands, the EVENT_TYPES registration, validate_docs.py, and README.md changes.
 

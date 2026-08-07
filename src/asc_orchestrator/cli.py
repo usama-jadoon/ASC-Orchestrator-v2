@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .aex import AEXError
 from .agent import AGCError
+from .aws import AwsError
 from .config import ConfigurationError, load_config
 from .etr import EtrError
 from .execution import EEFError
@@ -745,6 +746,65 @@ def _parser() -> argparse.ArgumentParser:
     )
     etr_report = commands.add_parser("etr-report", help="aggregated transport summary")
     etr_report.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_tick = commands.add_parser(
+        "scheduler-tick", help="execute one deterministic AWS v1.0 scheduling cycle"
+    )
+    scheduler_tick.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_enable = commands.add_parser(
+        "scheduler-enable", help="enable autonomous scheduling"
+    )
+    scheduler_enable.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_disable = commands.add_parser(
+        "scheduler-disable", help="disable autonomous scheduling"
+    )
+    scheduler_disable.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_status = commands.add_parser(
+        "scheduler-status", help="read the current scheduler snapshot"
+    )
+    scheduler_status.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_cycle = commands.add_parser(
+        "scheduler-cycle", help="read a single scheduling cycle record"
+    )
+    scheduler_cycle.add_argument(
+        "--cycle-id", required=True, help="canonical cycle identifier"
+    )
+    scheduler_cycle.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_list = commands.add_parser(
+        "scheduler-list", help="list scheduling cycle records"
+    )
+    scheduler_list.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="actor used for PESE state access",
+    )
+    scheduler_report = commands.add_parser(
+        "scheduler-report", help="aggregated scheduler summary"
+    )
+    scheduler_report.add_argument(
         "--actor",
         default="AGENT:orchestrator:local",
         help="actor used for PESE state access",
@@ -1746,6 +1806,103 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Unreachable but keeps type-checker happy.
             return 2  # pragma: no cover
 
+        if args.command.startswith("scheduler-"):
+            from .aws import AutonomousScheduler
+
+            scheduler = AutonomousScheduler(
+                config.repository_root, audit_directory=config.audit_dir
+            )
+            sched_actor = getattr(args, "actor", "AGENT:orchestrator:local")
+
+            if args.command == "scheduler-tick":
+                cycle = scheduler.tick(actor=sched_actor)
+                print(f"cycle_id={cycle.cycle_id}")
+                print(f"status={cycle.status}")
+                print(f"decision_type={cycle.decision_type}")
+                print(f"priority={cycle.priority}")
+                print(f"reason={cycle.reason}")
+                print(f"action_code={cycle.action_code}")
+                print(f"success={'true' if cycle.success else 'false'}")
+                print(f"mission_id={cycle.mission_id or ''}")
+                print(f"agent_id={cycle.agent_id or ''}")
+                print(f"assignment_id={cycle.assignment_id or ''}")
+                print(
+                    "detail="
+                    + json.dumps(cycle.detail, ensure_ascii=False, sort_keys=True)
+                )
+                return 0 if cycle.success else 2
+
+            if args.command in {"scheduler-enable", "scheduler-disable"}:
+                outcome = (
+                    scheduler.enable(actor=sched_actor)
+                    if args.command == "scheduler-enable"
+                    else scheduler.disable(actor=sched_actor)
+                )
+                _emit_pese_outcome(outcome)
+                return 0 if outcome.code in {"UPDATED", "NO_CHANGE"} else 2
+
+            if args.command == "scheduler-status":
+                sched_status = scheduler.status(actor=sched_actor)
+                print(f"enabled={'true' if sched_status.enabled else 'false'}")
+                print(f"active_mission_id={sched_status.active_mission_id or ''}")
+                print(f"cycle_count={sched_status.cycle_count}")
+                print(f"last_cycle_id={sched_status.last_cycle_id or ''}")
+                print(f"last_decision_type={sched_status.last_decision_type or ''}")
+                print(f"last_action_code={sched_status.last_action_code or ''}")
+                print(f"reason={sched_status.reason}")
+                return 0
+
+            if args.command == "scheduler-cycle":
+                cycle = scheduler.cycle(args.cycle_id, actor=sched_actor)
+                print(f"cycle_id={cycle.cycle_id}")
+                print(f"format={cycle.format}")
+                print(f"status={cycle.status}")
+                print(f"decision_type={cycle.decision_type}")
+                print(f"priority={cycle.priority}")
+                print(f"reason={cycle.reason}")
+                print(f"action_code={cycle.action_code}")
+                print(f"success={'true' if cycle.success else 'false'}")
+                print(f"created_at={cycle.created_at}")
+                print(f"completed_at={cycle.completed_at}")
+                print(f"mission_id={cycle.mission_id or ''}")
+                print(f"agent_id={cycle.agent_id or ''}")
+                print(f"assignment_id={cycle.assignment_id or ''}")
+                print(
+                    "detail="
+                    + json.dumps(cycle.detail, ensure_ascii=False, sort_keys=True)
+                )
+                return 0
+
+            if args.command == "scheduler-list":
+                cycles = scheduler.list_cycles(actor=sched_actor)
+                print(f"cycle_count={len(cycles)}")
+                for cycle in cycles:
+                    print(f"cycle_id={cycle.cycle_id}")
+                    print(f"status={cycle.status}")
+                    print(f"decision_type={cycle.decision_type}")
+                    print(f"action_code={cycle.action_code}")
+                    print(f"success={'true' if cycle.success else 'false'}")
+                return 0
+
+            if args.command == "scheduler-report":
+                sched_report = scheduler.report(actor=sched_actor)
+                print(f"enabled={'true' if sched_report.enabled else 'false'}")
+                print(f"total_cycles={sched_report.total_cycles}")
+                print(f"completed_cycles={sched_report.completed_cycles}")
+                print(f"failed_cycles={sched_report.failed_cycles}")
+                print(
+                    "decision_counts="
+                    + json.dumps(sched_report.decision_counts, sort_keys=True)
+                )
+                print(
+                    "action_counts="
+                    + json.dumps(sched_report.action_counts, sort_keys=True)
+                )
+                print(f"last_cycle_id={sched_report.last_cycle_id or ''}")
+                return 0
+            # Unreachable but keeps type-checker happy.
+            return 2  # pragma: no cover
+
         if args.command.startswith("key-"):
             from .keys import KeyStore
 
@@ -1821,6 +1978,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         AGCError,
         RecoveryError,
         EtrError,
+        AwsError,
         ValueError,
         OSError,
     ) as error:

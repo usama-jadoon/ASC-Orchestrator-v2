@@ -77,6 +77,13 @@ EVENT_TYPES = frozenset(
         "ETR_SEALED",
         "ETR_UNSEALED",
         "ETR_AUTH_FAILED",
+        # Autonomous Workflow Scheduler (AWS v1.0) scheduler events.
+        "SCHEDULER_ENABLED",
+        "SCHEDULER_DISABLED",
+        "SCHEDULER_CYCLE_STARTED",
+        "SCHEDULER_DECISION_MADE",
+        "SCHEDULER_ACTION_EXECUTED",
+        "SCHEDULER_CYCLE_COMPLETED",
     }
 )
 MISSION_INTERRUPT_RECOVERY = "MISSION_INTERRUPT_RECOVERY"
