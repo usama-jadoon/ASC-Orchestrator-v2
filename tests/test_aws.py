@@ -442,6 +442,24 @@ class TestDecisionModel(_AWSBaseTestCase):
         self.assertEqual(decision.priority, 100)
         self.assertIn("blocked", decision.reason)
 
+    def test_hold_when_risk_check_errors(self) -> None:
+        """HOLD: a risk hold-mechanism evaluation failure fails closed.
+
+        RB-10: the scheduler must not proceed on an unverifiable risk
+        posture; an exception from the risk engine forces HOLD.
+        """
+        scheduler = self._scheduler()
+
+        class _RaisingRiskEngine:
+            def check(self, *args: object, **kwargs: object) -> object:
+                raise RuntimeError("simulated risk evaluation failure")
+
+        scheduler._risk = _RaisingRiskEngine()  # type: ignore[assignment]
+        decision = scheduler._evaluate({}, ACTOR_ORCHESTRATOR)
+        self.assertEqual(decision.decision_type, "HOLD")
+        self.assertEqual(decision.priority, 100)
+        self.assertEqual(decision.reason, "risk-evaluation-failed")
+
     def test_recover_when_agent_failed(self) -> None:
         """RECOVER: a FAILED agent needs recovery (sorted deterministically)."""
         state = {

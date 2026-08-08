@@ -603,6 +603,56 @@ class TestAgentLifecycle(unittest.TestCase):
         outcome = engine.activate(AGENT_ID, AGENT_ID)
         self.assertEqual(outcome.code, "UPDATED")
 
+    def test_register_rejects_non_orchestrator(self) -> None:
+        engine = self._engine()
+        with self.assertRaises(AGCError) as ctx:
+            engine.register("AGENT:intruder:evil", "ACR:x", "AGENT:intruder:evil")
+        self.assertEqual(ctx.exception.code, "UNAUTHORIZED")
+
+    def test_heartbeat_rejects_unauthorized(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        with self.assertRaises(AGCError) as ctx:
+            engine.heartbeat(AGENT_ID, "AGENT:intruder:evil")
+        self.assertEqual(ctx.exception.code, "UNAUTHORIZED")
+
+    def test_heartbeat_allows_orchestrator(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        outcome = engine.heartbeat(AGENT_ID, actor)
+        self.assertEqual(outcome.code, "UPDATED")
+
+    def test_heartbeat_allows_self(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        outcome = engine.heartbeat(AGENT_ID, AGENT_ID)
+        self.assertEqual(outcome.code, "UPDATED")
+
+    def test_checkpoint_rejects_unauthorized(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        with self.assertRaises(AGCError) as ctx:
+            engine.update_checkpoint(AGENT_ID, "CP:1", "AGENT:intruder:evil")
+        self.assertEqual(ctx.exception.code, "UNAUTHORIZED")
+
+    def test_checkpoint_allows_orchestrator(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        outcome = engine.update_checkpoint(AGENT_ID, "CP:1", actor)
+        self.assertEqual(outcome.code, "UPDATED")
+
+    def test_checkpoint_allows_self(self) -> None:
+        engine = self._engine()
+        actor = self._actor()
+        engine.register(AGENT_ID, "ACR:x", actor)
+        outcome = engine.update_checkpoint(AGENT_ID, "CP:1", AGENT_ID)
+        self.assertEqual(outcome.code, "UPDATED")
+
     # --- list / status / report ---------------------------------------------
 
     def test_list_returns_sorted(self) -> None:

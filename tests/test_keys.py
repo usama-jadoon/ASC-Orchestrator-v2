@@ -179,11 +179,14 @@ class TestRotationAndRevocation(KeyStoreTestBase):
             self.store.revoke(ACTOR, key.key_id)
         self.assertEqual(ctx.exception.code, "KEY_NOT_ACTIVE")
 
-    def test_status_defaults_active_without_journal(self) -> None:
+    def test_status_fails_closed_without_journal(self) -> None:
         key = self.store.create_key(ACTOR)
-        # Remove the status journal: effective status must fall back to ACTIVE.
+        # Remove the status journal: status must fail closed, never fall back
+        # to ACTIVE for a key whose lifecycle cannot be verified.
         self.store._status_journal(key.key_id).unlink()
-        self.assertEqual(self.store.status(key.key_id), "ACTIVE")
+        with self.assertRaises(CKSError) as ctx:
+            self.store.status(key.key_id)
+        self.assertEqual(ctx.exception.code, "LEDGER_BROKEN")
 
     def test_signatures_before_rotation_still_verify(self) -> None:
         key = self.store.create_key(ACTOR)
@@ -245,6 +248,56 @@ class TestLedgerIntegrity(KeyStoreTestBase):
             original.replace('"purpose"', '"purpose":"hacked"'), encoding="utf-8"
         )
         self.assertFalse(self.store.validate())
+
+
+class TestStatusJournalIntegrity(KeyStoreTestBase):
+    """RB-11: status journal is hash-chain verified, never fails open."""
+
+    def test_status_fails_closed_on_broken_chain(self) -> None:
+        key = self.store.create_key(ACTOR)
+        journal = self.store._status_journal(key.key_id)
+        lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+        # Corrupt the single ACTIVE entry: its entry_hash no longer matches.
+        lines[0] = lines[0].replace('"reason":"CREATION"', '"reason":"HACK"')
+        journal.write_text("".join(lines), encoding="utf-8")
+        with self.assertRaises(CKSError) as ctx:
+            self.store.status(key.key_id)
+        self.assertEqual(ctx.exception.code, "LEDGER_BROKEN")
+
+    def test_verify_chain_detects_broken_status_journal(self) -> None:
+        key = self.store.create_key(ACTOR)
+        journal = self.store._status_journal(key.key_id)
+        lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[0] = lines[0].replace('"reason":"CREATION"', '"reason":"HACK"')
+        journal.write_text("".join(lines), encoding="utf-8")
+        self.assertFalse(self.store.verify_chain(key.key_id))
+        self.assertFalse(self.store.validate())
+
+    def test_status_journal_missing_detected_by_validate(self) -> None:
+        key = self.store.create_key(ACTOR)
+        # A key record without its status journal fails integrity checks.
+        self.store._status_journal(key.key_id).unlink()
+        self.assertFalse(self.store.validate())
+
+    def test_verify_fails_closed_on_broken_status_journal(self) -> None:
+        key = self.store.create_key(ACTOR)
+        self.store.sign(key.key_id, b"payload", ACTOR)
+        journal = self.store._status_journal(key.key_id)
+        lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[0] = lines[0].replace('"reason":"CREATION"', '"reason":"HACK"')
+        journal.write_text("".join(lines), encoding="utf-8")
+        # verify() returns False (bool contract) rather than raising.
+        self.assertFalse(self.store.verify(key.key_id, b"payload", "00" * 32))
+
+    def test_sign_refuses_broken_status_journal(self) -> None:
+        key = self.store.create_key(ACTOR)
+        journal = self.store._status_journal(key.key_id)
+        lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[0] = lines[0].replace('"reason":"CREATION"', '"reason":"HACK"')
+        journal.write_text("".join(lines), encoding="utf-8")
+        with self.assertRaises(CKSError) as ctx:
+            self.store.sign(key.key_id, b"payload", ACTOR)
+        self.assertEqual(ctx.exception.code, "LEDGER_BROKEN")
 
 
 class TestConcurrentSigning(KeyStoreTestBase):

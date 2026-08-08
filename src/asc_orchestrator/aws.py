@@ -345,11 +345,16 @@ class AutonomousScheduler:
     def _blocking_risk_check(
         self, state: dict[str, Any], *, actor: str = ACTOR_ORCHESTRATOR
     ) -> str | None:
-        """Return the blocking reason or None if no risk blocks."""
+        """Return the blocking reason or None if no risk blocks.
+
+        Fails closed: if the risk hold-mechanism evaluation itself errors, a
+        blocking reason is returned so autonomous execution holds rather than
+        proceeding on an unverifiable risk posture.
+        """
         try:
             check = self._risk.check(actor=actor)
         except Exception:
-            return None
+            return "risk-evaluation-failed"
         if check.blocked:
             return check.reason
         return None

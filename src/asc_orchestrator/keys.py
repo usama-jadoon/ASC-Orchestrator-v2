@@ -262,23 +262,49 @@ class KeyStore:
         return sorted(records, key=lambda r: r.created_at)
 
     def status(self, key_id: str) -> str:
-        """Resolve a key's current status from its status journal."""
+        """Resolve a key's current status from its status journal.
+
+        Fails closed: raises ``LEDGER_BROKEN`` if the status journal is
+        missing, empty, corrupt, or has a broken hash chain.  A key
+        record whose status journal cannot be verified is not trusted.
+        """
         self.load_key(key_id)  # raises KEY_NOT_FOUND if missing
         journal = self._status_journal(key_id)
         if not journal.exists():
-            return _STATUS_ACTIVE
+            raise CKSError(
+                "LEDGER_BROKEN",
+                f"status journal missing for key {key_id}",
+            )
+        # Verify the entire hash chain before reading the last entry.
+        # This catches corruption in any entry, not just the last line.
+        if not self._verify_journal_chain(journal):
+            raise CKSError(
+                "LEDGER_BROKEN",
+                f"status journal hash chain broken for key {key_id}",
+            )
         last_line: str | None = None
         with journal.open("r", encoding="utf-8", newline="") as f:
             for line in f:
                 if line.strip():
                     last_line = line
         if last_line is None:
-            return _STATUS_ACTIVE
+            raise CKSError(
+                "LEDGER_BROKEN",
+                f"status journal empty for key {key_id}",
+            )
         try:
             record = json.loads(last_line)
-            return str(record.get("status", _STATUS_ACTIVE))
-        except (json.JSONDecodeError, KeyError):
-            return _STATUS_ACTIVE
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise CKSError(
+                "LEDGER_BROKEN",
+                f"status journal corrupt for key {key_id}: {exc}",
+            ) from exc
+        if "status" not in record:
+            raise CKSError(
+                "LEDGER_BROKEN",
+                f"status entry missing status field for key {key_id}",
+            )
+        return str(record["status"])
 
     def _require_active(self, key_id: str) -> KeyRecord:
         key = self.load_key(key_id)
@@ -341,9 +367,16 @@ class KeyStore:
         payload: bytes,
         signature_hex: str,
     ) -> bool:
-        """Verify a signature against the specified key. Read-only, no side effects."""
+        """Verify a signature against the specified key. Read-only, no side effects.
+
+        Fails closed: if the key's status cannot be established (broken status
+        journal), verification returns False rather than trusting the key.
+        """
         key = self.load_key(key_id)
-        if self.status(key_id) != _STATUS_ACTIVE:
+        try:
+            if self.status(key_id) != _STATUS_ACTIVE:
+                return False
+        except CKSError:
             return False
         if key.key_type != "HMAC-SHA256":
             return False
@@ -402,14 +435,18 @@ class KeyStore:
             }
             return self._append_jsonl(journal, status_record)
 
-    def verify_chain(self, key_id: str) -> bool:
-        """Return True only if every signing ledger entry is hash-linked."""
-        ledger = self._ledger(key_id)
-        if not ledger.exists():
-            return True
+    def _verify_journal_chain(self, path: Path) -> bool:
+        """Verify the hash chain of a JSONL journal file.
+
+        Returns ``True`` only if every entry is hash-linked and entries are
+        not malformed.  Empty or blank-only files return ``True`` (no
+        entries to violate the chain).
+        """
+        if not path.exists():
+            return False
         previous_hash: str | None = None
-        with ledger.open("r", encoding="utf-8", newline="") as f:
-            for line_num, line in enumerate(f, start=1):
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for line in f:
                 if not line.strip():
                     return False
                 try:
@@ -422,6 +459,20 @@ class KeyStore:
                 if record.get("entry_hash") != computed:
                     return False
                 previous_hash = record.get("entry_hash")
+        return True
+
+    def verify_chain(self, key_id: str) -> bool:
+        """Return True only if both signing ledger and status journal chains
+        are hash-linked and well-formed."""
+        # Signing ledger may not exist yet (key never signed) → OK.
+        ledger = self._ledger(key_id)
+        if ledger.exists():
+            if not self._verify_journal_chain(ledger):
+                return False
+        # Status journal must exist for every known key (written at creation).
+        status_journal = self._status_journal(key_id)
+        if not self._verify_journal_chain(status_journal):
+            return False
         return True
 
     def validate(self) -> bool:

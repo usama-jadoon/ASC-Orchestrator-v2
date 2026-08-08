@@ -30,6 +30,8 @@ from .pese import PESEOutcome, PESEStore, utc_compact, utc_now
 
 AGC_FORMAT = "AGC/v1.0"
 
+ACTOR_ORCHESTRATOR = "AGENT:orchestrator:local"
+
 AGENT_STATUSES = frozenset(
     {
         "INITIALIZING",
@@ -238,7 +240,7 @@ class AgentLifecycle:
 
         The orchestrator may manage any agent.  An agent may manage itself.
         """
-        if actor != "AGENT:orchestrator:local" and actor != agent_id:
+        if actor != ACTOR_ORCHESTRATOR and actor != agent_id:
             raise AGCError(
                 "UNAUTHORIZED",
                 f"actor {actor!r} is not authorized to manage agent {agent_id!r}",
@@ -328,6 +330,11 @@ class AgentLifecycle:
             raise AGCError("INVALID_AGENT", "agent_id must not be empty")
         if not acr_ref:
             raise AGCError("INVALID_ACR_REF", "acr_ref must not be empty")
+        if actor != ACTOR_ORCHESTRATOR:
+            raise AGCError(
+                "UNAUTHORIZED",
+                f"only the orchestrator may register agents, got {actor!r}",
+            )
         with self._lock:
             result = self._load_state(actor)
             if isinstance(result, AGCError):
@@ -940,6 +947,7 @@ class AgentLifecycle:
                 )
             state, _, _ = result
             agent = self._find_agent(state, agent_id)
+            self._require_authority(actor, agent_id)
 
             def mutate(target: dict[str, Any]) -> None:
                 a = (
@@ -989,6 +997,7 @@ class AgentLifecycle:
                 )
             state, _, _ = result
             agent = self._find_agent(state, agent_id)
+            self._require_authority(actor, agent_id)
 
             def mutate(target: dict[str, Any]) -> None:
                 a = (
