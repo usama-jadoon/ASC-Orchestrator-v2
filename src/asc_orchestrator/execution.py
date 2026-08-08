@@ -174,6 +174,13 @@ class EEFEventJournal:
         with self._lock:
             self.directory.mkdir(parents=True, exist_ok=True)
             with _process_lock(self.lock_path):
+                # Fail-closed: refuse to append to a broken hash chain
+                # (mirrors audit.py; security review F4).
+                if self.path.exists() and not self.verify_chain():
+                    raise EEFError(
+                        "CHAIN_BROKEN",
+                        "refusing to append to an EEF journal with a broken hash chain",
+                    )
                 sequence = self._next_sequence()
                 record: dict[str, object] = {
                     "format": EEF_FORMAT,

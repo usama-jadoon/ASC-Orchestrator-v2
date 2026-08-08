@@ -171,7 +171,11 @@ REL is specified in [REL v1.0](./docs/REL_v1.0.md). The `release` command verifi
 
 ## Documentation
 
-See the [docs](./docs) directory for detailed documentation.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — system overview, module map, state and authorization models, data-flow diagrams, security architecture
+- [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md) — setup, tests, mypy/ruff gates, packaging, and how to add a new contract
+- [CHANGELOG.md](./CHANGELOG.md) — release history
+- [RELEASE_NOTES.md](./RELEASE_NOTES.md) — v1.0.0 release announcement and quick start
+- [docs](./docs) — the 16 canonical v1.0 contract specifications
 
 ## Contributing
 
@@ -179,11 +183,11 @@ Please read [CONTRIBUTING.md](.github/CONTRIBUTING.md) for details on our code o
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License, as declared in `pyproject.toml`.
 
 ## Security Policy
 
-See our [security policy](SECURITY.md) for details on reporting security vulnerabilities.
+The security architecture is described in [ARCHITECTURE.md](./ARCHITECTURE.md), section 6, including the fail-closed authorization model, hash-chained journals, and the RB-1..12 release-blocker remediation summary. Production-readiness is certified by the deterministic [REL v1.0](docs/REL_v1.0.md) release gate (`python -m asc_orchestrator --root . release`).
 
 ## Acknowledgments
 

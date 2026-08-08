@@ -182,7 +182,12 @@ class HealthStore:
         with path.open("r", encoding="utf-8", newline="") as fh:
             for line in fh:
                 if not line.strip():
-                    continue
+                    # Fail-closed: blank lines are never written by the
+                    # heartbeat() API.  Consistent with _verify_chain().
+                    raise AHPError(
+                        "JOURNAL_CORRUPT",
+                        f"blank entry in journal for {agent_id}",
+                    )
                 try:
                     result.append(json.loads(line))
                 except json.JSONDecodeError as exc:
@@ -403,7 +408,12 @@ class HealthStore:
         )
 
     def validate(self) -> bool:
-        """Verify every journal's chain, hashes, and sequence (read-only)."""
+        """Verify every journal's chain, hashes, and sequence (read-only).
+
+        Returns ``False`` on any corruption: blank lines, malformed JSON,
+        broken hash linkage, sequence gaps, or hash mismatches.  The check
+        is stricter than a bare JSON parse — it mirrors ``_verify_chain()``.
+        """
         if not self.agents_dir.is_dir():
             return True
         for path in sorted(self.agents_dir.glob("*.jsonl")):
@@ -412,7 +422,9 @@ class HealthStore:
             with path.open("r", encoding="utf-8", newline="") as fh:
                 for line in fh:
                     if not line.strip():
-                        continue
+                        # Fail-closed: blank lines are never written by
+                        # heartbeat().  Consistent with _verify_chain().
+                        return False
                     try:
                         record = json.loads(line)
                     except json.JSONDecodeError:

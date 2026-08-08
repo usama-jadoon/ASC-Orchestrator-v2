@@ -13,7 +13,6 @@ pattern used by RKM's ``RISK_STATUS`` and VAL's ``VALIDATION_GATE``).
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from dataclasses import dataclass
@@ -28,65 +27,9 @@ from .pese import PESEOutcome, PESEStore, utc_compact, utc_now
 # Constants
 # ---------------------------------------------------------------------------
 
-AGC_FORMAT = "AGC/v1.0"
-
 ACTOR_ORCHESTRATOR = "AGENT:orchestrator:local"
 
-AGENT_STATUSES = frozenset(
-    {
-        "INITIALIZING",
-        "REGISTERED",
-        "READY",
-        "BUSY",
-        "BLOCKED",
-        "FAILED",
-        "QUARANTINED",
-        "REPLACED",
-        "RELEASED",
-    }
-)
-
 _DEP_STATUSES = frozenset({"VERIFIED", "MISSING", "MISMATCH", "UNKNOWN"})
-
-# Legal state transitions: from_status -> {allowed_to_statuses}.
-_AGENT_TRANSITIONS: dict[str, set[str]] = {
-    "INITIALIZING": {"REGISTERED"},
-    "REGISTERED": {"READY"},
-    "READY": {"BUSY", "BLOCKED", "FAILED", "QUARANTINED", "RELEASED"},
-    "BUSY": {"READY", "BLOCKED", "FAILED", "QUARANTINED", "RELEASED"},
-    "BLOCKED": {"READY", "FAILED", "QUARANTINED", "RELEASED"},
-    "FAILED": {"QUARANTINED", "REPLACED", "RELEASED"},
-    "QUARANTINED": {"REPLACED", "RELEASED"},
-    "REPLACED": {"RELEASED"},
-}
-
-# Mapping from terminal status -> event type.
-_AGENT_STATUS_EVENTS: dict[str, str] = {
-    "INITIALIZING": "AGENT_REGISTERED",
-    "REGISTERED": "AGENT_ACTIVATED",
-    "READY": "AGENT_READY",
-    "BUSY": "AGENT_BUSY",
-    "BLOCKED": "AGENT_BLOCKED",
-    "FAILED": "AGENT_FAILED",
-    "QUARANTINED": "AGENT_QUARANTINED",
-    "REPLACED": "AGENT_REPLACED",
-    "RELEASED": "AGENT_RELEASED",
-}
-
-_AGENT_FIELDS = frozenset(
-    {
-        "agent_id",
-        "status",
-        "mission_id",
-        "assignment_id",
-        "manifest_version",
-        "last_heartbeat_at",
-        "last_checkpoint_id",
-        "acr_ref",
-        "dependency_environment_state",
-        "interruption",
-    }
-)
 
 _DEFAULT_DEP: dict[str, Any] = {
     "status": "UNKNOWN",
@@ -116,19 +59,6 @@ _LOCKS: dict[Path, threading.Lock] = {}
 def _get_lock(path: Path) -> threading.Lock:
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path, threading.Lock())
-
-
-def _canonical_json(record: dict[str, Any]) -> str:
-    return json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _entry_hash(record: dict[str, Any], *, exclude: str = "entry_hash") -> str:
-    material = {k: v for k, v in record.items() if k != exclude}
-    return (
-        __import__("hashlib")
-        .sha256(_canonical_json(material).encode("utf-8"))
-        .hexdigest()
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +258,14 @@ class AgentLifecycle:
         """
         if not agent_id:
             raise AGCError("INVALID_AGENT", "agent_id must not be empty")
+        if agent_id.startswith("AGENT:orchestrator:"):
+            # Reserve the orchestrator namespace (security review F3): no
+            # registered agent may impersonate orchestrator authority.
+            raise AGCError(
+                "INVALID_AGENT",
+                f"agent_id must not use the reserved 'AGENT:orchestrator:' "
+                f"namespace, got {agent_id!r}",
+            )
         if not acr_ref:
             raise AGCError("INVALID_ACR_REF", "acr_ref must not be empty")
         if actor != ACTOR_ORCHESTRATOR:

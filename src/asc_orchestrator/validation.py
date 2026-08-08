@@ -90,11 +90,6 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _safe_id(identifier: str) -> str:
-    """Replace reserved characters for Windows-compatible directory names."""
-    return identifier.replace(":", "%3A")
-
-
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------

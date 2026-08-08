@@ -129,6 +129,18 @@ class KeyStore:
         self._keys_path.mkdir(parents=True, exist_ok=True)
         self._status_path.mkdir(parents=True, exist_ok=True)
         self._signatures_path.mkdir(parents=True, exist_ok=True)
+        # Tighten POSIX permissions so generated key material is not world-
+        # readable by other local users (security review F1).  On Windows
+        # this is a no-op via os.chmod.
+        if os.name == "posix":
+            self.keys_dir.mkdir(parents=True, exist_ok=True)
+            for d in (
+                self.keys_dir,
+                self._keys_path,
+                self._status_path,
+                self._signatures_path,
+            ):
+                os.chmod(d, 0o700)
 
     def _key_file(self, key_id: str) -> Path:
         return self._keys_path / f"{key_id}.json"
@@ -162,9 +174,16 @@ class KeyStore:
         return h
 
     def _append_jsonl(
-        self, journal_path: Path, record: dict[str, Any], *, exclude: str = "entry_hash"
+        self,
+        journal_path: Path,
+        record: dict[str, Any],
+        *,
+        exclude: str = "entry_hash",
+        previous_hash: str | None = None,
     ) -> dict[str, Any]:
-        record["previous_hash"] = self._last_hash(journal_path)
+        if previous_hash is None:
+            previous_hash = self._last_hash(journal_path)
+        record["previous_hash"] = previous_hash
         record["entry_hash"] = _entry_hash(record, exclude=exclude)
         journal_path.parent.mkdir(parents=True, exist_ok=True)
         encoded = _canonical_json(record) + "\n"
@@ -223,9 +242,22 @@ class KeyStore:
         )
 
     def _atomic_write(self, path: Path, record: dict[str, Any]) -> None:
+        """Atomically write a key record with owner-only permissions.
+
+        Uses ``os.open(..., 0o600)`` so key material is never world-readable
+        on POSIX (security review F1).  ``os.replace`` keeps the write atomic.
+        """
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(_canonical_json(record) + "\n", encoding="utf-8", newline="\n")
-        tmp.replace(path)
+        payload = _canonical_json(record) + "\n"
+        if os.name == "posix":
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+        else:
+            tmp.write_text(payload, encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
 
     def load_key(self, key_id: str) -> KeyRecord:
         """Load a key record by ID."""
@@ -347,7 +379,11 @@ class KeyStore:
             ).hexdigest()
             now = _utc_now()
             ledger = self._ledger(key_id)
-            if not self.verify_chain(key_id):
+            # Verify the ledger chain and discover the tail hash in one pass
+            # (avoids a second full read).  A missing ledger is normal for a
+            # brand-new key; a broken chain on an existing ledger is fatal.
+            tail_hash, chain_ok = self._verify_journal_chain_last(ledger)
+            if chain_ok is False and ledger.exists():
                 raise CKSError(
                     "LEDGER_BROKEN",
                     f"signing ledger chain broken for {key_id}",
@@ -362,7 +398,7 @@ class KeyStore:
                 "actor": actor,
                 "purpose": purpose,
             }
-            saved = self._append_jsonl(ledger, record)
+            saved = self._append_jsonl(ledger, record, previous_hash=tail_hash)
             return SignatureRecord(
                 key_id=key_id,
                 payload_sha256=payload_sha256,
@@ -455,24 +491,35 @@ class KeyStore:
         not malformed.  Empty or blank-only files return ``True`` (no
         entries to violate the chain).
         """
+        last_hash, ok = self._verify_journal_chain_last(path)
+        return ok
+
+    def _verify_journal_chain_last(self, path: Path) -> tuple[str | None, bool]:
+        """Verify a journal chain, returning the last entry hash as a byproduct.
+
+        Combines chain verification with tail-hash discovery so callers that
+        need both (e.g. ``sign()``) can avoid a second full read of the file.
+        Returns ``(last_entry_hash, chain_ok)``; a missing file yields
+        ``(None, False)`` (no journal = no valid chain).
+        """
         if not path.exists():
-            return False
+            return None, False
         previous_hash: str | None = None
         with path.open("r", encoding="utf-8", newline="") as f:
             for line in f:
                 if not line.strip():
-                    return False
+                    return None, False
                 try:
                     record = json.loads(line)
                 except json.JSONDecodeError:
-                    return False
+                    return None, False
                 if record.get("previous_hash") != previous_hash:
-                    return False
+                    return None, False
                 computed = _entry_hash(record)
                 if record.get("entry_hash") != computed:
-                    return False
+                    return None, False
                 previous_hash = record.get("entry_hash")
-        return True
+        return previous_hash, True
 
     def verify_chain(self, key_id: str) -> bool:
         """Return True only if both signing ledger and status journal chains

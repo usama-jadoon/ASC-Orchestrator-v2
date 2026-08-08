@@ -40,9 +40,6 @@ from .validation import ValidationEngine
 AWS_FORMAT = "AWS/v1.0"
 AWS_EXTENSION_KEY = "org.asc.aws"
 
-SCHEDULER_STATUSES = frozenset({"ACTIVE", "DISABLED"})
-CYCLE_STATUSES = frozenset({"COMPLETED", "FAILED"})
-
 DECISION_TYPES = frozenset(
     {
         "HOLD",
@@ -72,9 +69,6 @@ _DECISION_PRIORITIES: dict[str, int] = {
 _EXECUTABLE_DECISIONS = frozenset(
     {"RECOVER", "START_MISSION", "DISPATCH", "VALIDATE", "COMPLETE_MISSION"}
 )
-
-# Read-only decisions (always recorded even when disabled).
-_READ_ONLY_DECISIONS = frozenset({"HOLD", "MONITOR_HEALTH", "IDLE"})
 
 ACTOR_ORCHESTRATOR = "AGENT:orchestrator:local"
 

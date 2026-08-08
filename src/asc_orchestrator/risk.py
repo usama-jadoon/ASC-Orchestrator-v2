@@ -17,7 +17,6 @@ Per PESE v1.0 section 4.7, each risk is a 9-field record in
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from dataclasses import dataclass
@@ -32,40 +31,9 @@ from .pese import PESEOutcome, PESEStore, utc_compact, utc_now
 # Constants
 # ---------------------------------------------------------------------------
 
-RKM_FORMAT = "RKM/v1.0"
 RKM_EXTENSION_KEY = "org.asc.rkm"
 
-RISK_STATUSES = frozenset({"OPEN", "MITIGATING", "ACCEPTED", "RESOLVED", "HALT"})
-
 RISK_SEVERITIES = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
-
-# Legal transitions: from_status -> {allowed_to_statuses}.
-_RISK_TRANSITIONS: dict[str, set[str]] = {
-    "OPEN": {"MITIGATING", "ACCEPTED", "RESOLVED", "HALT"},
-    "MITIGATING": {"RESOLVED"},
-}
-
-_RISK_FIELDS = frozenset(
-    {
-        "risk_id",
-        "status",
-        "severity",
-        "description",
-        "mission_id",
-        "evidence_refs",
-        "owner_agent_id",
-        "opened_at",
-        "resolved_at",
-    }
-)
-
-_RISK_STATUS_EVENTS = {
-    "OPEN": "RISK_OPENED",
-    "MITIGATING": "RISK_MITIGATED",
-    "ACCEPTED": "RISK_ACCEPTED",
-    "RESOLVED": "RISK_RESOLVED",
-    "HALT": "RISK_HALTED",
-}
 
 
 class RiskError(RuntimeError):
@@ -88,19 +56,6 @@ _LOCKS: dict[Path, threading.Lock] = {}
 def _get_lock(path: Path) -> threading.Lock:
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(path, threading.Lock())
-
-
-def _canonical_json(record: dict[str, Any]) -> str:
-    return json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _entry_hash(record: dict[str, Any], *, exclude: str = "entry_hash") -> str:
-    material = {k: v for k, v in record.items() if k != exclude}
-    return (
-        __import__("hashlib")
-        .sha256(_canonical_json(material).encode("utf-8"))
-        .hexdigest()
-    )
 
 
 # ---------------------------------------------------------------------------
