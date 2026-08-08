@@ -492,5 +492,43 @@ class TestEventJournal(_AEXTestBase):
         self.assertFalse(journal.verify_chain())
 
 
+# ---------------------------------------------------------------------------
+# RB-12: AEX relative_to guard on _result_path / _artifacts_path
+# ---------------------------------------------------------------------------
+
+
+class TestPathEscapeGuard(unittest.TestCase):
+    """RB-12: _result_path and _artifacts_path reject traversal."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        # Path-escape tests only need the AEX engine's _artifacts_dir — no PESE state required.
+        from asc_orchestrator.aex import AEX
+
+        self.engine = AEX(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_result_path_escapes_rejected(self) -> None:
+        from asc_orchestrator.aex import AEXError
+
+        with self.assertRaises(AEXError) as ctx:
+            self.engine._result_path("../../escape", "ASN:ok")
+        self.assertEqual(ctx.exception.code, "PATH_ESCAPE")
+
+    def test_artifacts_path_escapes_rejected(self) -> None:
+        from asc_orchestrator.aex import AEXError
+
+        with self.assertRaises(AEXError) as ctx:
+            self.engine._artifacts_path("MISSION:ok", "../../escape")
+        self.assertEqual(ctx.exception.code, "PATH_ESCAPE")
+
+    def test_normal_path_accepted(self) -> None:
+        p = self.engine._result_path("MISSION:test", "ASN:ok:1")
+        self.assertTrue(str(p).endswith("result.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

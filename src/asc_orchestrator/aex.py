@@ -250,20 +250,27 @@ class AEX:
             return None
 
     def _result_path(self, mission_id: str, assignment_id: str) -> Path:
-        return (
-            self._artifacts_dir
-            / _safe_id(mission_id)
-            / _safe_id(assignment_id)
-            / "result.json"
-        )
+        base = self._artifacts_dir.resolve()
+        path = base / _safe_id(mission_id) / _safe_id(assignment_id) / "result.json"
+        self._assert_contained(base, path)
+        return path
 
     def _artifacts_path(self, mission_id: str, assignment_id: str) -> Path:
-        return (
-            self._artifacts_dir
-            / _safe_id(mission_id)
-            / _safe_id(assignment_id)
-            / "artifacts"
-        )
+        base = self._artifacts_dir.resolve()
+        path = base / _safe_id(mission_id) / _safe_id(assignment_id) / "artifacts"
+        self._assert_contained(base, path)
+        return path
+
+    @staticmethod
+    def _assert_contained(base: Path, path: Path) -> None:
+        """Fail-closed containment check against directory traversal."""
+        try:
+            path.resolve().relative_to(base)
+        except ValueError:
+            raise AEXError(
+                "PATH_ESCAPE",
+                f"resolved path escapes artifacts directory: {path}",
+            )
 
     def _write_result(
         self,

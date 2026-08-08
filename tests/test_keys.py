@@ -326,5 +326,44 @@ class TestConcurrentSigning(KeyStoreTestBase):
         self.assertEqual(count, 8)
 
 
+# ---------------------------------------------------------------------------
+# RB-9: key_id format validation
+# ---------------------------------------------------------------------------
+
+
+class TestKeyIdValidation(KeyStoreTestBase):
+    """RB-9: key_id is validated before path construction."""
+
+    def test_traversal_slash_rejected(self) -> None:
+        with self.assertRaises(CKSError) as ctx:
+            self.store.load_key("KEY-../../etc/passwd")
+        self.assertEqual(ctx.exception.code, "KEY_ID_INVALID")
+
+    def test_traversal_backslash_rejected(self) -> None:
+        with self.assertRaises(CKSError) as ctx:
+            self.store.load_key("KEY-..\\windows\\system32")
+        self.assertEqual(ctx.exception.code, "KEY_ID_INVALID")
+
+    def test_dotdot_rejected(self) -> None:
+        with self.assertRaises(CKSError) as ctx:
+            self.store.load_key("KEY-valid-but-..-unsafe")
+        self.assertEqual(ctx.exception.code, "KEY_ID_INVALID")
+
+    def test_normal_key_id_accepted(self) -> None:
+        key = self.store.create_key(ACTOR)
+        loaded = self.store.load_key(key.key_id)
+        self.assertEqual(loaded.key_id, key.key_id)
+
+    def test_status_validates_key_id(self) -> None:
+        with self.assertRaises(CKSError) as ctx:
+            self.store.status("KEY-../../../escape")
+        self.assertEqual(ctx.exception.code, "KEY_ID_INVALID")
+
+    def test_verify_validates_key_id(self) -> None:
+        with self.assertRaises(CKSError) as ctx:
+            self.store.verify("KEY-../../../escape", b"", "00" * 32)
+        self.assertEqual(ctx.exception.code, "KEY_ID_INVALID")
+
+
 if __name__ == "__main__":
     unittest.main()

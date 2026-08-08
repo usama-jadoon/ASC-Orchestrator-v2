@@ -45,9 +45,24 @@ def _record_hash(record: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(material).encode("utf-8")).hexdigest()
 
 
+_SAFE_ID_ALLOWED = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"
+)
+
+
 def _safe_id(identifier: str) -> str:
-    """Replace reserved characters for Windows-compatible directory names."""
-    return identifier.replace(":", "%3A")
+    """Encode an identifier into a single safe path segment.
+
+    Every character outside ``[A-Za-z0-9._-]`` — path separators, drive
+    letters, whitespace, control characters — is percent-encoded so the
+    result can never introduce a directory separator or drive reference.
+    A leading dot is also encoded so the segment can never resolve to the
+    traversal names ``.`` or ``..``.
+    """
+    out = [ch if ch in _SAFE_ID_ALLOWED else f"%{ord(ch):02X}" for ch in identifier]
+    if out and out[0] == ".":
+        out[0] = "%2E"
+    return "".join(out)
 
 
 def _parse_utc(value: str) -> datetime:
@@ -196,10 +211,27 @@ class HealthStore:
         assignment_id: str | None = None,
         note: str | None = None,
         occurred_at: str | None = None,
+        actor: str | None = None,
     ) -> HeartbeatRecord:
-        """Append one heartbeat to the agent's hash-chained journal."""
+        """Append one heartbeat to the agent's hash-chained journal.
+
+        ``actor``, when provided, must be the heartbeating agent itself or
+        an orchestrator-role agent; a caller claiming to act for a different
+        agent is rejected.  Omitting ``actor`` preserves the raw journal
+        API for internal callers that have already established
+        authorization at a higher layer.
+        """
         if not agent_id:
             raise AHPError("INVALID_AGENT", "agent_id must be a non-empty string")
+        if (
+            actor is not None
+            and actor != agent_id
+            and not actor.startswith("AGENT:orchestrator:")
+        ):
+            raise AHPError(
+                "UNAUTHORIZED",
+                f"actor {actor!r} is not authorized to record a heartbeat for {agent_id!r}",
+            )
         stamp = occurred_at or utc_now()
         with self._lock:
             self.agents_dir.mkdir(parents=True, exist_ok=True)
@@ -234,6 +266,43 @@ class HealthStore:
             heartbeat_sha256=record["heartbeat_sha256"],
         )
 
+    def _verify_chain(self, path: Path) -> None:
+        """Verify the full heartbeat journal hash chain.
+
+        Raises ``AHPError(JOURNAL_CORRUPT)`` if any entry is malformed,
+        breaks the previous-heartbeat linkage, reuses a heartbeat hash,
+        or advances the sequence incorrectly.  Empty or missing files
+        are not errors (verified elsewhere in the caller).
+        """
+        previous: str | None = None
+        expected_sequence = 1
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            for line in fh:
+                if not line.strip():
+                    raise AHPError("JOURNAL_CORRUPT", f"blank entry in {path.name}")
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise AHPError(
+                        "JOURNAL_CORRUPT", f"malformed heartbeat in {path.name}: {exc}"
+                    ) from exc
+                if not isinstance(record, dict):
+                    raise AHPError(
+                        "JOURNAL_CORRUPT", f"non-object entry in {path.name}"
+                    )
+                if record.get("previous_heartbeat_sha256") != previous:
+                    raise AHPError(
+                        "JOURNAL_CORRUPT", f"broken hash chain in {path.name}"
+                    )
+                if record.get("heartbeat_sha256") != _record_hash(record):
+                    raise AHPError(
+                        "JOURNAL_CORRUPT", f"heartbeat hash mismatch in {path.name}"
+                    )
+                if record.get("sequence") != expected_sequence:
+                    raise AHPError("JOURNAL_CORRUPT", f"sequence gap in {path.name}")
+                previous = record.get("heartbeat_sha256")
+                expected_sequence += 1
+
     def agent_health(
         self,
         agent_id: str,
@@ -241,7 +310,13 @@ class HealthStore:
         timeout: object = 300,
         now: str | datetime | None = None,
     ) -> AgentHealth:
-        """Derive the liveness status for one agent at the query time."""
+        """Derive the liveness status for one agent at the query time.
+
+        Fails closed: the full heartbeat journal hash chain is verified
+        before any status is derived; a corrupted journal raises
+        ``JOURNAL_CORRUPT`` rather than returning a liveness verdict
+        grounded in unverified records.
+        """
         if not agent_id:
             raise AHPError("INVALID_AGENT", "agent_id must be a non-empty string")
         parsed_timeout = _parse_timeout(timeout)
@@ -257,6 +332,10 @@ class HealthStore:
                 last_mission_id=None,
                 last_assignment_id=None,
             )
+        # RB-7: verify the full journal hash chain before deriving status.
+        journal = self._journal_path(agent_id)
+        if journal.exists():
+            self._verify_chain(journal)
         last = records[-1]
         try:
             occurred_at = _parse_utc(str(last.get("occurred_at", "")))

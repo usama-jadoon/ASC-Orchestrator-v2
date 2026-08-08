@@ -26,6 +26,16 @@ _TERMINAL = frozenset({_STATUS_ROTATED, _STATUS_REVOKED})
 _KEY_ID_RE_PREFIX = "KEY-"
 
 
+def _validate_key_id(key_id: str) -> None:
+    """Reject key IDs that could cause directory traversal.
+
+    Valid CKS key IDs contain only alphanumerics, hyphens, underscores,
+    and dots — never path separators or ``..`` traversal components.
+    """
+    if ".." in key_id or "/" in key_id or "\\" in key_id or "\0" in key_id:
+        raise CKSError("KEY_ID_INVALID", f"unsafe key_id: {key_id!r}")
+
+
 def _utc_now() -> str:
     now = datetime.now(timezone.utc)
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
@@ -219,6 +229,7 @@ class KeyStore:
 
     def load_key(self, key_id: str) -> KeyRecord:
         """Load a key record by ID."""
+        _validate_key_id(key_id)
         path = self._key_file(key_id)
         if not path.exists():
             raise CKSError("KEY_NOT_FOUND", f"key not found: {key_id}")
@@ -268,6 +279,7 @@ class KeyStore:
         missing, empty, corrupt, or has a broken hash chain.  A key
         record whose status journal cannot be verified is not trusted.
         """
+        _validate_key_id(key_id)
         self.load_key(key_id)  # raises KEY_NOT_FOUND if missing
         journal = self._status_journal(key_id)
         if not journal.exists():
@@ -372,6 +384,7 @@ class KeyStore:
         Fails closed: if the key's status cannot be established (broken status
         journal), verification returns False rather than trusting the key.
         """
+        _validate_key_id(key_id)
         key = self.load_key(key_id)
         try:
             if self.status(key_id) != _STATUS_ACTIVE:

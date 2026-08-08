@@ -259,5 +259,150 @@ class TestValidation(unittest.TestCase):
         self.assertTrue(store.validate())
 
 
+# ---------------------------------------------------------------------------
+# RB-5: heartbeat authorization + _safe_id hardening
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatAuthorization(unittest.TestCase):
+    """RB-5: heartbeat actor authorization enforcement."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_self_report_authorized(self) -> None:
+        store = HealthStore(self.root)
+        rec = store.heartbeat(
+            "AGENT:dev:local", occurred_at=_ts(), actor="AGENT:dev:local"
+        )
+        self.assertEqual(rec.agent_id, "AGENT:dev:local")
+
+    def test_orchestrator_report_authorized(self) -> None:
+        store = HealthStore(self.root)
+        rec = store.heartbeat(
+            "AGENT:dev:local",
+            occurred_at=_ts(),
+            actor="AGENT:orchestrator:local",
+        )
+        self.assertEqual(rec.agent_id, "AGENT:dev:local")
+
+    def test_third_party_rejected(self) -> None:
+        store = HealthStore(self.root)
+        with self.assertRaises(AHPError) as ctx:
+            store.heartbeat(
+                "AGENT:dev:local",
+                occurred_at=_ts(),
+                actor="AGENT:impostor:evil",
+            )
+        self.assertEqual(ctx.exception.code, "UNAUTHORIZED")
+
+    def test_none_actor_skips_check(self) -> None:
+        """actor=None (omitted) preserves backward-compatible raw API."""
+        store = HealthStore(self.root)
+        rec = store.heartbeat("AGENT:dev:local", occurred_at=_ts())
+        self.assertEqual(rec.agent_id, "AGENT:dev:local")
+
+    def test_orchestrator_prefix_accepted(self) -> None:
+        store = HealthStore(self.root)
+        rec = store.heartbeat(
+            "AGENT:dev:local",
+            occurred_at=_ts(),
+            actor="AGENT:orchestrator:123e4567-e89b-42d3-a456-426614174000",
+        )
+        self.assertEqual(rec.agent_id, "AGENT:dev:local")
+
+
+class TestSafeIdHardening(unittest.TestCase):
+    """RB-5: _safe_id must reject path-traversal characters."""
+
+    def test_leading_dot_encoded(self) -> None:
+        from asc_orchestrator.health import _safe_id
+
+        self.assertEqual(_safe_id("."), "%2E")
+        self.assertEqual(_safe_id(".."), "%2E.")
+
+    def test_slash_encoded(self) -> None:
+        from asc_orchestrator.health import _safe_id
+
+        self.assertNotIn("/", _safe_id("../../../etc/passwd"))
+
+    def test_backslash_encoded(self) -> None:
+        from asc_orchestrator.health import _safe_id
+
+        self.assertNotIn("\\", _safe_id("foo\\bar"))
+
+    def test_colon_encoded(self) -> None:
+        from asc_orchestrator.health import _safe_id
+
+        self.assertEqual(_safe_id("AGENT:dev:local"), "AGENT%3Adev%3Alocal")
+
+
+# ---------------------------------------------------------------------------
+# RB-7: agent_health journal chain verification
+# ---------------------------------------------------------------------------
+
+
+class TestAgentHealthChainVerify(unittest.TestCase):
+    """RB-7: agent_health fails closed on corrupted heartbeat journal."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.store = HealthStore(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_corrupt_chain_raises(self) -> None:
+        """Broken previous_heartbeat_sha256 link raises JOURNAL_CORRUPT."""
+        self.store.heartbeat("AGENT:dev:local", occurred_at=_ts(0))
+        self.store.heartbeat("AGENT:dev:local", occurred_at=_ts(10))
+        # Tamper: re-write first entry with wrong previous_heartbeat_sha256.
+        path = (
+            self.root
+            / ".project-os"
+            / "HEALTH"
+            / "agents"
+            / "AGENT%3Adev%3Alocal.jsonl"
+        )
+        lines = path.read_text(encoding="utf-8").splitlines()
+        entry = json.loads(lines[0])
+        entry["previous_heartbeat_sha256"] = "x" * 64
+        lines[0] = json.dumps(entry, sort_keys=True, separators=(",", ":"))
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        with self.assertRaises(AHPError) as ctx:
+            self.store.agent_health("AGENT:dev:local")
+        self.assertEqual(ctx.exception.code, "JOURNAL_CORRUPT")
+
+    def test_hash_mismatch_raises(self) -> None:
+        """Tampered heartbeat hash raises JOURNAL_CORRUPT."""
+        self.store.heartbeat("AGENT:dev:local", occurred_at=_ts(0))
+        path = (
+            self.root
+            / ".project-os"
+            / "HEALTH"
+            / "agents"
+            / "AGENT%3Adev%3Alocal.jsonl"
+        )
+        lines = path.read_text(encoding="utf-8").splitlines()
+        entry = json.loads(lines[0])
+        entry["note"] = "tampered"
+        lines[0] = json.dumps(entry, sort_keys=True, separators=(",", ":"))
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        with self.assertRaises(AHPError) as ctx:
+            self.store.agent_health("AGENT:dev:local")
+        self.assertEqual(ctx.exception.code, "JOURNAL_CORRUPT")
+
+    def test_valid_chain_passes(self) -> None:
+        """Intact chain derives status normally."""
+        self.store.heartbeat("AGENT:dev:local", occurred_at=_ts(0))
+        h = self.store.agent_health("AGENT:dev:local", timeout=300, now=_ts(10))
+        self.assertEqual(h.status, "ALIVE")
+
+
 if __name__ == "__main__":
     unittest.main()

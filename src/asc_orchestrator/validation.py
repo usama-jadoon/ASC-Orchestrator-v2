@@ -574,8 +574,12 @@ class ValidationEngine:
             )
 
         # PESE state is corrupt (likely tampered artifacts).  Read the raw
-        # live.json to provide per-artifact diagnostic information.  This is
-        # strictly read-only and does not assert state validity.
+        # live.json to provide per-artifact diagnostic information so the
+        # operator can identify the file that broke the integrity chain.
+        # This is strictly read-only and does NOT assert state validity.
+        # Fail closed: a verdict computed from unverified state is never
+        # authoritative, so all_match is forced False regardless of what the
+        # raw read happens to show.
         from .pese import _json_load  # local to avoid circular at module level
 
         try:
@@ -588,11 +592,11 @@ class ValidationEngine:
             ) from exc
         gate = self._find_gate(state, mission_id, gate_id)
         artifacts = state.get("validation_state", {}).get("artifacts", {})
-        avs, all_match = self._check_artifact_files(gate, artifacts)
+        avs, _ = self._check_artifact_files(gate, artifacts)
         return VerificationResult(
             gate_id=gate_id,
             mission_id=mission_id,
-            all_match=all_match,
+            all_match=False,
             artifact_verifications=avs,
         )
 
