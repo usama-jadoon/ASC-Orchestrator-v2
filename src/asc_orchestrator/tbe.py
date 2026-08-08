@@ -727,6 +727,11 @@ def bind_manifest_to_pese(
     canonical serialization exactly, preventing PESE from being bound to a
     different human-readable authority record.
     """
+    if not actor.startswith("AGENT:orchestrator:"):
+        raise TBEError(
+            "UNAUTHORIZED",
+            "bind_manifest_to_pese requires orchestrator authority",
+        )
     if registry is None and any(item.artifact_class for item in manifest.ownership):
         raise TBEError(
             "PESE_BIND_INVALID",

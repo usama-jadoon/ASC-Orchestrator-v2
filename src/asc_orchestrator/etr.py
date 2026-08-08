@@ -485,6 +485,11 @@ class EncryptedTransport:
         """Bind an ACTIVE channel to a CKS key (the ACP §19 session key)."""
         if not from_id or not to_id:
             raise EtrError("BAD_CHANNEL", "from_id and to_id are required")
+        if actor != from_id and not actor.startswith("AGENT:orchestrator:"):
+            raise EtrError(
+                "UNAUTHORIZED",
+                f"actor {actor!r} is not authorized to bind channel for sender {from_id!r}",
+            )
         with self._lock:
             self._resolve_key(key_id)  # validate the key exists and is ACTIVE
             channel_id = f"CHANNEL:{uuid.uuid4().hex}"
@@ -528,6 +533,12 @@ class EncryptedTransport:
                 raise result
             state, _, _ = result
             record = self._find_channel(state, channel_id)
+            endpoints = {record.get("from"), record.get("to")}
+            if not actor.startswith("AGENT:orchestrator:") and actor not in endpoints:
+                raise EtrError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to revoke channel {channel_id!r}",
+                )
             if record["status"] != "ACTIVE":
                 raise EtrError(
                     "CHANNEL_NOT_ACTIVE",
@@ -724,6 +735,16 @@ class EncryptedTransport:
                 raise EtrError(
                     "ENVELOPE_NOT_OPENABLE",
                     f"envelope status is {record.get('status')!r}",
+                )
+            recipient = record.get("to")
+            if (
+                recipient
+                and actor != recipient
+                and not actor.startswith("AGENT:orchestrator:")
+            ):
+                raise EtrError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to open envelope addressed to {recipient!r}",
                 )
             key_id = record.get("key_id")
             if not key_id:

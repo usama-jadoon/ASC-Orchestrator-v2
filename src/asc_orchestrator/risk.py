@@ -486,6 +486,12 @@ class RiskEngine:
                 )
             state, _, _ = result
             risk = self._find_risk(state, risk_id)
+            owner = risk.get("owner_agent_id", "")
+            if actor != owner and not actor.startswith("AGENT:orchestrator:"):
+                raise RiskError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to mitigate risk {risk_id!r}",
+                )
             if risk["status"] != "OPEN":
                 raise RiskError(
                     "RISK_NOT_OPEN",
@@ -530,6 +536,12 @@ class RiskEngine:
                 )
             state, _, _ = result
             risk = self._find_risk(state, risk_id)
+            owner = risk.get("owner_agent_id", "")
+            if actor != owner and not actor.startswith("AGENT:orchestrator:"):
+                raise RiskError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to accept risk {risk_id!r}",
+                )
             if risk["status"] != "OPEN":
                 raise RiskError(
                     "RISK_NOT_OPEN",
@@ -577,6 +589,12 @@ class RiskEngine:
                 )
             state, _, _ = result
             risk = self._find_risk(state, risk_id)
+            owner = risk.get("owner_agent_id", "")
+            if actor != owner and not actor.startswith("AGENT:orchestrator:"):
+                raise RiskError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to resolve risk {risk_id!r}",
+                )
             from_status = risk["status"]
             if from_status not in {"OPEN", "MITIGATING"}:
                 raise RiskError(
@@ -630,6 +648,12 @@ class RiskEngine:
                 )
             state, _, _ = result
             risk = self._find_risk(state, risk_id)
+            owner = risk.get("owner_agent_id", "")
+            if actor != owner and not actor.startswith("AGENT:orchestrator:"):
+                raise RiskError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to halt risk {risk_id!r}",
+                )
             if risk["status"] != "OPEN":
                 raise RiskError(
                     "RISK_NOT_OPEN",

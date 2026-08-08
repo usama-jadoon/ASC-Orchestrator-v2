@@ -2424,6 +2424,62 @@ class PESEStore:
             gate = before["validation_state"].get("gates", {}).get(subject, {})
             if gate.get("validator_agent_id") != actor:
                 raise PESEError("UNAUTHORIZED", "actor is not the designated validator")
+        elif kind == "AGENT_STATUS":
+            agent = before.get("agent_state", {}).get("agents", {}).get(subject, {})
+            if actor != "AGENT:orchestrator:local" and actor != agent.get("agent_id"):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to transition agent {subject!r}",
+                )
+        elif kind == "RISK_STATUS":
+            risk = before.get("risk_state", {}).get("risks", {}).get(subject, {})
+            owner = risk.get("owner_agent_id", "")
+            if actor != owner and not actor.startswith("AGENT:orchestrator:"):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to transition risk {subject!r}",
+                )
+        elif kind == "TRANSPORT_STATUS":
+            channels = before.get("transport_state", {}).get("channels", {})
+            envelopes = before.get("transport_state", {}).get("envelopes", {})
+            record = channels.get(subject) or envelopes.get(subject) or {}
+            endpoints = {record.get("from"), record.get("to")}
+            if not actor.startswith("AGENT:orchestrator:") and actor not in endpoints:
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to transition transport {subject!r}",
+                )
+        elif kind == "MISSION_INTERRUPT_RECOVERY":
+            mission = (
+                before.get("mission_state", {}).get("missions", {}).get(subject, {})
+            )
+            if actor not in mission.get(
+                "assigned_agent_ids", ()
+            ) and not actor.startswith("AGENT:orchestrator:"):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to resume mission {subject!r}",
+                )
+        elif kind == "SCHEDULER_STATUS":
+            # The autonomous scheduler persists its own cycle ledger under
+            # org.asc.aws; the tick actor is an attribution label for that
+            # orchestrator-owned subsystem.  Toggling the scheduler enabled
+            # state (subject "SCHEDULER") is a control-plane action reserved
+            # for orchestrator authority.
+            if subject == "SCHEDULER" and not actor.startswith("AGENT:orchestrator:"):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"actor {actor!r} is not authorized to toggle scheduler state",
+                )
+        else:
+            # Default-deny: any kind not in the authorized set requires
+            # orchestrator authority.  Runtimes that allow non-orchestrator
+            # actors must explicitly authorize their kind above.
+            if not actor.startswith("AGENT:orchestrator:"):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    f"{kind} transitions require orchestrator authority",
+                )
         # The durable ACR reference is the minimum local proof of a known
         # contract.  PESE does not interpret registry capabilities, but it
         # refuses an actor with no declared ACR output-contract reference.
