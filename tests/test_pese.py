@@ -20,6 +20,48 @@ MISSION = "MISSION:007"
 ASSIGNMENT = "ASSIGNMENT:implement-pese"
 
 
+def team_manifest() -> str:
+    return f"""## TEAM IDENTITY
+Manifest Version: 1
+## PROJECT CLASSIFICATION
+| Root | Type |
+| --- | --- |
+| . | Python |
+## MEMBERSHIP TABLE
+| Agent ID | Role | Department | ACR registry reference |
+| --- | --- | --- | --- |
+| {ACTOR} | Orchestrator | ENGINEERING | docs/ACR_v1.0.md |
+## OWNERSHIP MATRIX
+| Mutable area or artifact | Owner |
+| --- | --- |
+| {ASSIGNMENT} | {ACTOR} |
+## EXECUTION GRAPH
+| Agent | Phase |
+| --- | --- |
+| {ACTOR} | 1 |
+## REVIEW MATRIX
+| Deliverable | Reviewer |
+| --- | --- |
+| PESE | {ACTOR} |
+## VALIDATOR ASSIGNMENT
+| Gate | Validator |
+| --- | --- |
+| GATE:qa | {ACTOR} |
+## ESCALATION ROUTES
+| Level | Destination |
+| --- | --- |
+| 1 | {ACTOR} |
+## CAPACITY RECORD
+| Agent | Capacity |
+| --- | --- |
+| {ACTOR} | 1 |
+## ACTIVE POLICIES
+| Policy | Evidence |
+| --- | --- |
+| default | docs/TBE_v1.0.md |
+"""
+
+
 def state_with_work(store: PESEStore) -> dict:
     state = store.default_state()
     state["company_state"]["status"] = "ACTIVE"
@@ -99,53 +141,57 @@ class PESEStoreTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         os.environ["GIT_CEILING_DIRECTORIES"] = str(self.root.parent)
         self.store = PESEStore(self.root)
-        (self.root / "team.md").write_text(
-            f"""## TEAM IDENTITY
-Manifest Version: 1
-## PROJECT CLASSIFICATION
-| Root | Type |
-| --- | --- |
-| . | Python |
-## MEMBERSHIP TABLE
-| Agent ID | Role | Department | ACR registry reference |
-| --- | --- | --- | --- |
-| {ACTOR} | Orchestrator | ENGINEERING | docs/ACR_v1.0.md |
-## OWNERSHIP MATRIX
-| Mutable area or artifact | Owner |
-| --- | --- |
-| {ASSIGNMENT} | {ACTOR} |
-## EXECUTION GRAPH
-| Agent | Phase |
-| --- | --- |
-| {ACTOR} | 1 |
-## REVIEW MATRIX
-| Deliverable | Reviewer |
-| --- | --- |
-| PESE | {ACTOR} |
-## VALIDATOR ASSIGNMENT
-| Gate | Validator |
-| --- | --- |
-| GATE:qa | {ACTOR} |
-## ESCALATION ROUTES
-| Level | Destination |
-| --- | --- |
-| 1 | {ACTOR} |
-## CAPACITY RECORD
-| Agent | Capacity |
-| --- | --- |
-| {ACTOR} | 1 |
-## ACTIVE POLICIES
-| Policy | Evidence |
-| --- | --- |
-| default | docs/TBE_v1.0.md |
-""",
-            encoding="utf-8",
-            newline="\n",
-        )
+        self._write_team_manifest(self.root)
         self.assertEqual(
             self.store.initialize(ACTOR, state_with_work(self.store)).code,
             "INITIALIZED",
         )
+
+    def _write_team_manifest(self, root: Path) -> None:
+        (root / "team.md").write_text(team_manifest(), encoding="utf-8", newline="\n")
+
+    @staticmethod
+    def _git(root: Path, *arguments: str) -> None:
+        try:
+            subprocess.run(
+                ["git", *arguments],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise unittest.SkipTest("Git is not installed")
+
+    def _git_worktree(self, name: str) -> tuple[Path, PESEStore]:
+        """Create a Git worktree with one commit and PESE bound to it."""
+        root = self.root / name
+        root.mkdir()
+        self._git(root, "init")
+        self._git(root, "config", "user.email", "test@example.invalid")
+        self._git(root, "config", "user.name", "PESE Tests")
+        self._write_team_manifest(root)
+        (root / "tracked.txt").write_text("initial\n", encoding="utf-8")
+        self._git(root, "add", "team.md", "tracked.txt")
+        self._git(root, "commit", "-m", "initial")
+        store = PESEStore(root)
+        self.assertEqual(
+            store.initialize(ACTOR, state_with_work(store)).code, "INITIALIZED"
+        )
+        return root, store
+
+    def _git_commit(self, root: Path, message: str) -> str:
+        (root / "tracked.txt").write_text(message + "\n", encoding="utf-8")
+        self._git(root, "add", "tracked.txt")
+        self._git(root, "commit", "-m", message)
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return head.stdout.strip()
 
     def tearDown(self) -> None:
         if self._previous_ceiling is None:
@@ -729,6 +775,140 @@ Manifest Version: 1
         other.initialize(ACTOR, state)
         report = other.validate(check_repository=False)
         self.assertIn("CONTRACT_INVALID", [x["code"] for x in report.findings])
+
+    def test_reconcile_repository_records_authorized_head_advance_and_unblocks_resume(
+        self,
+    ) -> None:
+        """The production defect: HEAD advances, resume halts, reconcile fixes."""
+        root, store = self._git_worktree("git-reconcile")
+        self.assertEqual(store.validate().code, "VALID")
+        old_head = store.repository_observation()["HEAD"]
+        self.assertEqual(
+            store.checkpoint(MISSION, "MANUAL", actor=ACTOR).code, "CHECKPOINTED"
+        )
+        new_head = self._git_commit(root, "advance")
+        self.assertNotEqual(new_head, old_head)
+
+        report = store.validate()
+        self.assertEqual(report.code, "INVALID")
+        self.assertIn(
+            "REPOSITORY_DIVERGENCE", [finding["code"] for finding in report.findings]
+        )
+        halted = store.resume()
+        self.assertEqual(halted.code, "SAFETY_HALT")
+        self.assertTrue(
+            any(
+                finding["code"] == "REPOSITORY_DIVERGENCE"
+                for finding in halted.findings
+            )
+        )
+
+        result = store.reconcile_repository(actor=ACTOR, expected_revision=1)
+        self.assertEqual(result.code, "RECONCILIATED")
+        self.assertEqual(result.data["old_HEAD"], old_head)
+        self.assertEqual(result.data["new_HEAD"], new_head)
+        self.assertEqual(
+            result.data["repository_id"],
+            store.repository_observation()["repository_id"],
+        )
+        self.assertEqual(result.state_revision, 2)
+        self.assertEqual(result.state_sha256, store.load().state_sha256)
+        self.assertEqual(store.validate().code, "VALID")
+        self.assertEqual(store.resume().code, "RESUME_PLAN")
+
+    def test_reconcile_repository_refresh_with_unchanged_head_stays_valid(
+        self,
+    ) -> None:
+        root, store = self._git_worktree("git-refresh")
+        before = store.repository_observation()
+        result = store.reconcile_repository(actor=ACTOR, expected_revision=1)
+        self.assertEqual(result.code, "RECONCILIATED")
+        self.assertEqual(result.data["old_HEAD"], result.data["new_HEAD"])
+        self.assertEqual(result.data["new_HEAD"], before["HEAD"])
+        self.assertEqual(store.validate().code, "VALID")
+
+    def test_reconcile_repository_rejects_a_non_descendant_head(self) -> None:
+        root, store = self._git_worktree("git-divergent")
+        first = store.repository_observation()["HEAD"]
+        # Advance main and reconcile, so the stored HEAD becomes `second`.
+        second = self._git_commit(root, "second")
+        ok = store.reconcile_repository(actor=ACTOR, expected_revision=1)
+        self.assertEqual(ok.code, "RECONCILIATED")
+        # Branch from the ORIGINAL commit: its tip is not a descendant of the
+        # stored HEAD, so reconciliation must refuse to rebind to it.
+        self._git(root, "checkout", "-b", "side", first)
+        self._git_commit(root, "side")
+        self.assertFalse(
+            store._is_ancestor(second, store.repository_observation()["HEAD"])
+        )
+        report = store.reconcile_repository(actor=ACTOR, expected_revision=2)
+        self.assertEqual(report.code, "SAFETY_HALT")
+        self.assertTrue(
+            any(
+                finding["code"] == "REPOSITORY_NON_DESCENDANT"
+                for finding in report.findings
+            )
+        )
+        # No new state revision was committed and no checkpoint was written.
+        self.assertEqual(store.load().state_revision, 2)
+
+    def test_reconcile_repository_rejects_a_different_repository(self) -> None:
+        root, store = self._git_worktree("git-mismatch")
+        # Legitimately persist a forked repository identity (simulates PESE
+        # state captured from a different checkout being offered for rebinding).
+        forged = store.update(
+            expected_revision=1,
+            actor=ACTOR,
+            transition_type="TEST_MUTATION",
+            subject="state",
+            from_value="",
+            to_value="",
+            mutate=lambda s: s["repo_state"].update({"repository_id": "REPO:forged"}),
+        )
+        self.assertEqual(forged.code, "UPDATED")
+        report = store.reconcile_repository(actor=ACTOR, expected_revision=2)
+        self.assertEqual(report.code, "SAFETY_HALT")
+        self.assertTrue(
+            any(finding["code"] == "REPOSITORY_MISMATCH" for finding in report.findings)
+        )
+
+    def test_reconcile_repository_requires_orchestrator_authority(self) -> None:
+        root, store = self._git_worktree("git-unauthorized")
+        report = store.reconcile_repository(
+            actor="AGENT:builder:1", expected_revision=1
+        )
+        self.assertEqual(report.code, "SAFETY_HALT")
+        self.assertTrue(
+            any(finding["code"] == "UNAUTHORIZED" for finding in report.findings)
+        )
+        self.assertEqual(store.load().state_revision, 1)
+
+    def test_reconcile_repository_writes_audit_trail_and_preserves_hash_chain(
+        self,
+    ) -> None:
+        root, store = self._git_worktree("git-audit")
+        old_head = store.repository_observation()["HEAD"]
+        new_head = self._git_commit(root, "advance")
+        result = store.reconcile_repository(actor=ACTOR, expected_revision=1)
+        self.assertEqual(result.code, "RECONCILIATED")
+        records = [
+            json.loads(path.read_text())
+            for path in (store.base / "audit/transitions").glob("*.json")
+            if json.loads(path.read_text()).get("transition_type")
+            == "REPOSITORY_RECONCILIATION"
+        ]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["from"], old_head)
+        self.assertEqual(records[0]["to"], new_head)
+        self.assertEqual(records[0]["after_state_sha256"], result.state_sha256)
+        # The reconcile state revision carries the COMMIT checkpoint and the
+        # full chain (history + checkpoints + audits) validates cleanly.
+        self.assertEqual(store.validate(check_repository=False).code, "VALID")
+        self.assertEqual(store.load().data["envelope"]["revision"], 2)
+        envelope = json.loads(store.live_path.read_text())
+        observed = store.repository_observation()
+        self.assertEqual(envelope["state"]["repo_state"]["HEAD"], new_head)
+        self.assertEqual(envelope["state"]["repo_state"]["BRANCH"], observed["BRANCH"])
 
 
 if __name__ == "__main__":

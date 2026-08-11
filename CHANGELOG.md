@@ -5,6 +5,38 @@ All notable changes to the ASC Orchestrator v2 project are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-11
+
+Maintenance bugfix release. Software version advances to `1.0.1`; the PESE
+state schema remains `1.0.0` and no state migration is required.
+
+### Fixed
+
+- PESE `repo_state` was frozen at mission-initialization HEAD, so authorized
+  Git commits made `validate-state` report `REPOSITORY_DIVERGENCE` and halted
+  `resume`. A new explicit `reconcile-repository` operation records an
+  authorized HEAD advance and restores state to `VALID`.
+- Reconciliation is never automatic: it requires orchestrator authority,
+  verifies repository identity, requires the recorded HEAD to be an ancestor
+  of the observed HEAD, and rejects non-descendant or rewritten histories.
+- Git errors fail closed, and an optional `--expected-revision` guard rejects
+  reconciliations against a stale state revision.
+
+### Added
+
+- CLI command `asc-orchestrator reconcile-repository` emitting
+  `outcome=RECONCILIATED` with deterministic exit codes.
+- PESE transition type `REPOSITORY_RECONCILIATION` — an audited transition
+  recording the old and new HEAD, preserving the state hash chain, and
+  persisting a mandatory `COMMIT` checkpoint.
+- `docs/PESE_v1.0.md` §5.5 documenting the repository-reconciliation contract
+  as the sanctioned resolution path for `REPOSITORY_DIVERGENCE`.
+
+### Changed
+
+- Software release version advanced to `1.0.1`; PESE `schema_version` remains
+  `1.0.0` with zero state migration.
+
 ## [1.0.0] - 2026-08-08
 
 Initial production release of ASC Orchestrator v2 — a deterministic,

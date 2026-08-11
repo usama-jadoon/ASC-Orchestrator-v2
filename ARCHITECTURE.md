@@ -1,7 +1,7 @@
 # ASC Orchestrator v2 — Architecture
 
 This document describes the internal architecture of ASC Orchestrator v2
-(version 1.0.0). It is written for engineers who need to understand how the
+(version 1.0.1). It is written for engineers who need to understand how the
 runtime is organized, how state flows through it, and how the security
 model is enforced.
 

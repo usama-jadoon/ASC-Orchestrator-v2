@@ -2,7 +2,7 @@
 
 ## 1. PURPOSE AND SCOPE
 
-REL v1.0 is the canonical production-release contract for ASC Orchestrator v2. It certifies that the source tree ships the complete, deterministic, dependency-free runtime stack — ACP, ACR, PESE, TBE, MSS, EEF, CKS, AEX, AHP, VAL, RKM, AGC, REC, ETR, and AWS, all at v1.0 — packaged under the production version `1.0.0` with a validated `src/` wheel layout, an installed console entry point, no undeclared runtime dependencies, every canonical contract specification present, every runtime module importable, and the full per-contract unit and CLI test suite shipped.
+REL v1.0 is the canonical production-release contract for ASC Orchestrator v2. It certifies that the source tree ships the complete, deterministic, dependency-free runtime stack — ACP, ACR, PESE, TBE, MSS, EEF, CKS, AEX, AHP, VAL, RKM, AGC, REC, ETR, and AWS, all at v1.0 — packaged under the production version `1.0.1` with a validated `src/` wheel layout, an installed console entry point, no undeclared runtime dependencies, every canonical contract specification present, every runtime module importable, and the full per-contract unit and CLI test suite shipped.
 
 Today no machine-verifiable gate certifies that a checkout is a complete, packageable, production-ready release. REL closes that gap with a deterministic, stdlib-only `release` command that reads only local files and reports one gate per release invariant, exiting 0 only when every gate passes.
 
@@ -12,7 +12,7 @@ Today no machine-verifiable gate certifies that a checkout is a complete, packag
 
 A source tree is production-release ready when all of the following hold:
 
-1. **Production version.** `pyproject.toml` declares `[project].version == "1.0.0"`.
+1. **Production version.** `pyproject.toml` declares `[project].version == "1.0.1"`.
 2. **Package identity.** `[project].name == "asc-orchestrator"`.
 3. **Dependency-free runtime.** `[project].dependencies` is the empty list — the runtime is stdlib-only by contract.
 4. **Console entry point.** `[project.scripts]` maps `asc-orchestrator` to `asc_orchestrator.cli:main`.
@@ -28,9 +28,9 @@ All criteria are checked deterministically by the `release` command; a single fa
 
 ASC Orchestrator v2 uses a single canonical version, declared only in `pyproject.toml` `[project].version`.
 
-- The production release is `1.0.0` (REL v1.0).
+- The production release is `1.0.1` (REL v1.0).
 - Within the `1.0.x` series the runtime contracts are stable: no contract, state encoding, CLI command, event type, or exit-code semantic changes without a new canonical contract revision and a versioned migration.
-- Pre-production builds historically used `0.1.x`; the M020 production release advances the line to `1.0.0` with no state migration because PESE state carries its own revision and extension keys.
+- Pre-production builds historically used `0.1.x`; the M020 production release advanced the line to `1.0.0` and the v1.0.1 maintenance bugfix advances it to `1.0.1`, each with no state migration because PESE state carries its own revision and extension keys.
 
 ## 4. RELEASE CONTRACT SCHEMA
 
@@ -39,7 +39,7 @@ The `release` command emits one machine-readable gate report. The canonical JSON
 ```json
 {
   "format": "REL/v1.0",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "release": "PASS",
   "gates": {
     "version": "PASS",
@@ -79,7 +79,7 @@ The release gate is the composition of the deterministic static verification abo
 4. Lint — `python -m ruff check src tests scripts` passes.
 5. Formatting — `python -m ruff format --check src tests scripts` passes.
 6. Documentation — `python scripts/validate_docs.py` passes (now also validating REL v1.0).
-7. Distribution — a dependency-free wheel build produces `asc_orchestrator-1.0.0-py3-none-any.whl`, installs cleanly, and the `asc-orchestrator` console entry point runs.
+7. Distribution — a dependency-free wheel build produces `asc_orchestrator-1.0.1-py3-none-any.whl`, installs cleanly, and the `asc-orchestrator` console entry point runs.
 
 ## 7. CLI REFERENCE
 
@@ -95,14 +95,14 @@ Behavior:
 
 1. Resolves the repository root from `--root` (default current directory).
 2. Runs the deterministic `verify` report over that root.
-3. Prints `release=PASS` (or `FAIL`) followed by `version=1.0.0` and one `gate.<name>=PASS|FAIL` line per gate; failing gates additionally print `gate.<name>.detail=<reason>`.
+3. Prints `release=PASS` (or `FAIL`) followed by `version=1.0.1` and one `gate.<name>=PASS|FAIL` line per gate; failing gates additionally print `gate.<name>.detail=<reason>`.
 4. Exits 0 when every gate passes, 2 otherwise.
 
 Example:
 
 ```text
 release=PASS
-version=1.0.0
+version=1.0.1
 gate.version=PASS
 gate.package_name=PASS
 gate.no_dependencies=PASS
@@ -124,20 +124,20 @@ gate.release_spec=PASS
 
 ## 9. DISTRIBUTION
 
-The production distribution is a dependency-free wheel `asc_orchestrator-1.0.0-py3-none-any.whl` built from the `src/` layout, plus the corresponding source distribution. Installation registers the `asc-orchestrator` console entry point (`asc_orchestrator.cli:main`) and the `python -m asc_orchestrator` module entry point. No third-party runtime dependency is declared or installed; the runtime is stdlib-only by contract and by verification.
+The production distribution is a dependency-free wheel `asc_orchestrator-1.0.1-py3-none-any.whl` built from the `src/` layout, plus the corresponding source distribution. Installation registers the `asc-orchestrator` console entry point (`asc_orchestrator.cli:main`) and the `python -m asc_orchestrator` module entry point. No third-party runtime dependency is declared or installed; the runtime is stdlib-only by contract and by verification.
 
 ## 10. COMPATIBILITY
 
 - REL v1.0 is backward compatible with all fifteen prior v1.0 contracts: it verifies their presence and shipping state without modifying them.
 - The `release` command is read-only; it never mutates PESE state, the audit journal, keys, health journals, artifacts, or the event journal.
-- PESE state created before M020 validates unchanged; version advancement to `1.0.0` does not alter any state encoding or extension key.
+- PESE state created before M020 validates unchanged; version advancement to `1.0.1` does not alter any state encoding or extension key.
 
 ## 11. IMPLEMENTATION REQUIREMENTS
 
 1. The verifier is stdlib-only: `tomllib` for `pyproject.toml`, `importlib` for module importability, and `dataclasses` for the report.
 2. Every check is deterministic and encoded as a gate; no exception escapes `verify`.
 3. `ReleaseReport.passed` is the logical AND of all gates; `failed_gates` enumerates the failures in declaration order.
-4. The canonical constants (`PRODUCTION_VERSION = "1.0.0"`, the sixteen `CANONICAL_SPECS`, `RUNTIME_MODULES`, and `TEST_MODULES`) are the single source of truth for the release vocabulary.
+4. The canonical constants (`PRODUCTION_VERSION = "1.0.1"`, the sixteen `CANONICAL_SPECS`, `RUNTIME_MODULES`, and `TEST_MODULES`) are the single source of truth for the release vocabulary.
 5. The `release` CLI command prints machine-readable `key=value` lines and returns exit code 0 (ready) or 2 (not ready).
 
 ## 12. IMPLEMENTATION GATES
@@ -146,9 +146,9 @@ M020 is complete when:
 
 1. `src/asc_orchestrator/release.py` implements `verify`, `render`, `ReleaseGate`, `ReleaseReport`, and the nine fixed gates.
 2. `release` is registered and dispatched in `src/asc_orchestrator/cli.py` with exit code 0 on `release=PASS` and 2 on `release=FAIL`.
-3. `pyproject.toml` declares version `1.0.0` with a dependency-free `asc-orchestrator` console entry point and the `src/` layout.
+3. `pyproject.toml` declares version `1.0.1` with a dependency-free `asc-orchestrator` console entry point and the `src/` layout.
 4. `tests/test_release.py` covers the passing tree and tampered-tree FAIL paths.
 5. `scripts/validate_docs.py` validates this specification (required headings, JSON example, terminal marker, `release` command documentation).
-6. All release gates in section 6 pass: full suite, MyPy, Ruff check+format, documentation validation, `release=PASS`, and the `1.0.0` wheel build/install smoke.
+6. All release gates in section 6 pass: full suite, MyPy, Ruff check+format, documentation validation, `release=PASS`, and the `1.0.1` wheel build/install smoke.
 
 **END OF SPECIFICATION**

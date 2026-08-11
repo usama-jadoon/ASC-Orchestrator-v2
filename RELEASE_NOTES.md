@@ -1,5 +1,40 @@
 # ASC Orchestrator v2 — Release Notes
 
+**Version 1.0.1** · 2026-08-11 · Maintenance bugfix release
+
+This maintenance release fixes a production defect in PESE v1.0: `repo_state`
+was captured at mission initialization and never refreshed, so authorized Git
+commits caused `validate-state` to report `REPOSITORY_DIVERGENCE` and `resume`
+to halt.
+
+## What changed
+
+- **Repository reconciliation fix.** A new explicit `reconcile-repository`
+  operation records an authorized Git HEAD advance in PESE repository state,
+  restoring `validate-state` to `VALID` and unblocking `resume`. Reconciliation
+  is never automatic — it always requires an explicit, authorized invocation.
+- **New CLI command.** `asc-orchestrator reconcile-repository` is added. Only
+  an orchestrator-role actor (`AGENT:orchestrator:*`) may invoke it.
+- **Descendant-history safety.** The operation rejects any candidate HEAD that
+  is not a descendant of the recorded HEAD, so side-branch or rewritten
+  histories are refused rather than silently adopted.
+- **Race protection.** An optional `--expected-revision` guard rejects
+  reconciliations against a stale state revision, preventing lost updates.
+- **Audit and checkpoint.** Every reconciliation writes an audited
+  `REPOSITORY_RECONCILIATION` state transition recording both the old and new
+  HEAD, preserves the state hash chain, and persists a mandatory checkpoint.
+- **Backwards compatibility.** The change is additive: existing
+  `validate-state`, `resume`, `update`, and `checkpoint` behavior is unchanged,
+  and no integrity checks were weakened.
+
+## Zero migration
+
+The software version advances to **1.0.1**; the PESE state schema stays
+**1.0.0**. No state migration is required — existing state remains valid and
+unchanged.
+
+---
+
 **Version 1.0.0** · 2026-08-08 · Initial production release
 
 ASC Orchestrator v2 is a deterministic, auditable, standard-library-only
@@ -58,7 +93,7 @@ Build the wheel, then install it (on any offline or air-gapped host):
 ```powershell
 python -m pip install build        # build frontend only; not a runtime dep
 python -m build
-python -m pip install dist/asc_orchestrator-1.0.0-py3-none-any.whl
+python -m pip install dist/asc_orchestrator-1.0.1-py3-none-any.whl
 ```
 
 ### Verify the installation

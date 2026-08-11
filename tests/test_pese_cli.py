@@ -81,3 +81,35 @@ class PESECliTests(unittest.TestCase):
             )
             self.assertEqual(result, 2)
             self.assertIn("outcome=INVALID", output)
+
+    def test_reconcile_repository_command_unblocks_validated_state(self) -> None:
+        with self._root() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "state", "--initialize")[0], 0)
+            # Advance Git HEAD the way an authorized commit does.
+            (root / "tracked.txt").write_text("second\n", encoding="utf-8")
+            self._git(root, "add", "tracked.txt")
+            self._git(root, "commit", "-m", "second")
+            result, output = self._run(root, "validate-state")
+            self.assertEqual(result, 2)
+            self.assertIn("REPOSITORY_DIVERGENCE", output)
+
+            result, output = self._run(root, "reconcile-repository")
+            self.assertEqual(result, 0)
+            self.assertIn("outcome=RECONCILIATED", output)
+
+            result, output = self._run(root, "validate-state")
+            self.assertEqual(result, 0)
+            self.assertIn("outcome=VALID", output)
+
+    def test_reconcile_repository_command_rejects_a_stale_expected_revision(
+        self,
+    ) -> None:
+        with self._root() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "state", "--initialize")[0], 0)
+            result, output = self._run(
+                root, "reconcile-repository", "--expected-revision", "99"
+            )
+            self.assertEqual(result, 2)
+            self.assertIn("outcome=CONFLICT", output)
