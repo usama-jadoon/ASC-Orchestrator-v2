@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -37,9 +38,7 @@ def _process_lock(lock_path: Path) -> Iterator[None]:
             lock_file.write(b"0")
             lock_file.flush()
         lock_file.seek(0)
-        try:
-            import fcntl
-        except ImportError:
+        if sys.platform == "win32":
             import msvcrt
 
             for attempt in range(100):
@@ -56,6 +55,8 @@ def _process_lock(lock_path: Path) -> Iterator[None]:
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
 
         else:
+            import fcntl
+
             flock = getattr(fcntl, "flock")
             lock_ex = getattr(fcntl, "LOCK_EX")
             lock_un = getattr(fcntl, "LOCK_UN")
