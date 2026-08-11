@@ -212,7 +212,7 @@ class AuditJournalTests(unittest.TestCase):
             self.assertEqual(len(list(journal.entries())), 12)
             self.assertTrue(journal.verify_chain())
             with self.assertRaises(Exception):
-                AuditJournal(temporary_directory, filename="..\\outside.jsonl")
+                AuditJournal(temporary_directory, filename="../outside.jsonl")
 
     def test_separate_process_appends_preserve_the_hash_chain(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
