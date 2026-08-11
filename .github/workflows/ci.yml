@@ -78,6 +78,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Release verification
+        env:
+          PYTHONPATH: src
         run: |
           python -c "
           from asc_orchestrator.release import verify, render
