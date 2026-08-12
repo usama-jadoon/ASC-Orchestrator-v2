@@ -58,6 +58,7 @@ MANDATORY_CHECKPOINTS = {
     "REPO_HEAD": {"*": "COMMIT"},
     "AGENT_STATUS": {"FAILED": "FAILURE", "QUARANTINED": "FAILURE"},
     "RECOVERY_STATUS": {"FAILED": "FAILURE"},
+    "REPOSITORY_RECONCILIATION": {"*": "COMMIT"},
 }
 PRIORITY = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -99,6 +100,7 @@ class PESEOutcome:
             "RECOVERED",
             "MIGRATED",
             "INITIALIZED",
+            "RECONCILIATED",
             "LOCKED",
         }
 
@@ -1168,6 +1170,192 @@ class PESEStore:
             )
         finally:
             self.release_lock(actor)
+
+    def reconcile_repository(
+        self,
+        *,
+        actor: str,
+        expected_revision: int,
+    ) -> PESEOutcome:
+        """Rebind the persisted ``repo_state`` to the live repository observation.
+
+        When legitimate commits advance Git HEAD beyond the stored observation,
+        ``validate(check_repository=True)`` and ``resume()`` report
+        ``REPOSITORY_DIVERGENCE``.  This method provides an explicit,
+        auditable path to refresh the repository observation without
+        manually editing PESE state.
+
+        Safety guarantees:
+
+        - The writer lock must be held or is acquired here.
+        - ``repository_id`` must match (prevents rebinding to a different repo).
+        - The current HEAD must be a descendant of the stored HEAD
+          (prevents replaying or skipping history).
+        - A new state revision is committed through the standard ``update()``
+          path, preserving the hash chain.
+        - A COMMIT checkpoint is written for the active mission (if any).
+        - The transition audit records both old and new HEAD.
+
+        Parameters
+        ----------
+        actor : str
+            Must be an orchestrator actor (``AGENT:orchestrator:*``).
+        expected_revision : int
+            The caller's expected current state revision for optimistic
+            concurrency.
+
+        Returns
+        -------
+        PESEOutcome
+            ``RECONCILIATED`` on success with ``old_HEAD`` and ``new_HEAD``
+            in ``data``, or a safety-halt / conflict outcome on failure.
+        """
+        if not actor.startswith("AGENT:orchestrator:"):
+            return self._outcome(
+                "SAFETY_HALT",
+                findings=(
+                    {
+                        "code": "UNAUTHORIZED",
+                        "detail": "reconcile_repository requires orchestrator authority",
+                    },
+                ),
+            )
+
+        acquired_here = False
+        acquired = self.acquire_lock(actor, expected_revision)
+        if acquired.code != "LOCK_ACQUIRED":
+            return acquired
+        acquired_here = True
+        try:
+            loaded = self.load(actor=actor)
+            if loaded.code != "STATE_LOADED":
+                return self._outcome("HALTED", findings=loaded.findings)
+            envelope = loaded.data["envelope"]
+            if envelope["revision"] != expected_revision:
+                return self._outcome(
+                    "CONFLICT",
+                    state=envelope,
+                    findings=(
+                        {
+                            "code": "CONFLICT",
+                            "detail": "expected revision differs",
+                        },
+                    ),
+                )
+
+            old_repo = dict(envelope["state"]["repo_state"])
+            old_head = old_repo.get("HEAD", "")
+            try:
+                observed = self.repository_observation()
+            except PESEError as exc:
+                return self._outcome(
+                    "SAFETY_HALT",
+                    state=envelope,
+                    findings=({"code": exc.code, "detail": exc.detail},),
+                )
+
+            new_head = observed.get("HEAD", "")
+
+            # --- Safety gate 1: same repository identity --------------------
+            if old_repo.get("repository_id") != observed.get("repository_id"):
+                return self._outcome(
+                    "SAFETY_HALT",
+                    state=envelope,
+                    findings=(
+                        {
+                            "code": "REPOSITORY_MISMATCH",
+                            "detail": (
+                                "repository_id differs: "
+                                f"{old_repo.get('repository_id')} != "
+                                f"{observed.get('repository_id')}"
+                            ),
+                        },
+                    ),
+                )
+
+            # --- Safety gate 2: HEAD must be a descendant of stored HEAD ----
+            if old_head and new_head and old_head != new_head:
+                if not self._is_ancestor(old_head, new_head):
+                    return self._outcome(
+                        "SAFETY_HALT",
+                        state=envelope,
+                        findings=(
+                            {
+                                "code": "REPOSITORY_NON_DESCENDANT",
+                                "detail": (
+                                    f"new HEAD {new_head[:12]} is not a "
+                                    f"descendant of stored HEAD {old_head[:12]}"
+                                ),
+                            },
+                        ),
+                    )
+
+            # --- Commit updated repo_state through the standard update path -
+
+            def _apply_repo_state(new_state: dict[str, Any]) -> None:
+                new_state["repo_state"] = observed
+
+            mission_id = envelope["state"]["mission_state"].get("active_mission_id")
+            result = self.update(
+                expected_revision=expected_revision,
+                actor=actor,
+                transition_type="REPOSITORY_RECONCILIATION",
+                subject=mission_id or "state",
+                from_value=old_head,
+                to_value=new_head,
+                mutate=_apply_repo_state,
+                _lock_held=True,
+            )
+            if result.code != "UPDATED":
+                return result
+
+            return PESEOutcome(
+                "RECONCILIATED",
+                result.operation_id,
+                result.occurred_at,
+                state_revision=result.state_revision,
+                state_sha256=result.state_sha256,
+                findings=(),
+                data={
+                    "old_HEAD": old_head,
+                    "new_HEAD": new_head,
+                    "repository_id": observed.get("repository_id"),
+                    "old_fingerprint_sha256": old_repo.get(
+                        "worktree_fingerprint_sha256"
+                    ),
+                    "new_fingerprint_sha256": observed.get(
+                        "worktree_fingerprint_sha256"
+                    ),
+                },
+            )
+        finally:
+            if acquired_here:
+                self.release_lock(actor)
+
+    def _is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Check whether *ancestor* is reachable from *descendant* in Git.
+
+        Returns ``True`` when ``git merge-base --is-ancestor <ancestor>
+        <descendant`` exits 0.  Returns ``False`` on any Git error
+        (missing objects, different repository, etc.) so that callers
+        reject ambiguous lineage rather than silently proceeding.
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "merge-base",
+                    "--is-ancestor",
+                    ancestor,
+                    descendant,
+                ],
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
 
     def _envelope(
         self,

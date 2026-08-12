@@ -135,7 +135,7 @@ The wheel is dependency-free by contract (`dependencies = []`), uses the
 Inspect the artifact:
 
 ```powershell
-python -m pip install dist/asc_orchestrator-1.0.0-py3-none-any.whl
+python -m pip install dist/asc_orchestrator-1.0.1-py3-none-any.whl
 asc-orchestrator --root <checkout> release
 ```
 

@@ -463,6 +463,7 @@ Before an assignment may become `READY` or `IN_PROGRESS`, its agent's `dependenc
 | `SAVE` | Atomically persist exactly one next revision | `SAVED` | `LOCKED`, `CONFLICT`, `IO_FAILURE`, or `HALTED` |
 | `CHECKPOINT` | Validate and persist a checkpoint | `CHECKPOINTED` | `DUPLICATE`, `INVALID`, or `HALTED` |
 | `RESUME` | Execute Section 7 read-only decision algorithm | `RESUME_PLAN` | `NO_WORK`, `RECOVERY_REQUIRED`, or `SAFETY_HALT` |
+| `RECONCILIATE` | Rebind persisted `repo_state` to the live Git observation after an authorized commit | `RECONCILIATED` | `SAFETY_HALT` with `REPOSITORY_MISMATCH`, `REPOSITORY_NON_DESCENDANT`, or `UNAUTHORIZED`; `CONFLICT` if `expected_revision` differs |
 
 Outcomes SHALL include `operation_id`, `occurred_at`, `state_revision` when available, `state_sha256` when available, and non-secret structured findings. An implementation SHALL make no state mutation after returning `SAFETY_HALT` except a recovery/audit transition permitted by Section 10.
 
@@ -503,6 +504,26 @@ While holding the single-writer lock, State Manager SHALL:
 
 If a failure happens before history publication, the operation SHALL fail with no new state. If it happens after history publication but before live replacement/audit publication, recovery SHALL preserve the history revision and repair derived files; it SHALL NOT delete the history revision. A writer SHALL never overwrite a history revision.
 
+### 5.5 Repository state reconciliation
+
+When legitimate commits advance Git HEAD beyond the stored `repo_state` observation, Section 8 reports `REPOSITORY_DIVERGENCE` and Resume Manager halts with `PESE_INTEGRITY_FAILURE`. `RECONCILIATE` is the **only sanctioned path** to refresh `repo_state`; manual file editing SHALL be treated as tampering.
+
+`RECONCILIATE` applies the following safety gates in order, halting on the first failure:
+
+1. **Orchestrator authority** — the caller SHALL be `AGENT:orchestrator:*`.
+2. **Writer lock** — acquired or verified exclusive to the caller; `expected_revision` SHALL match.
+3. **Repository identity** — `repo_state.repository_id` SHALL equal the current Git observation.
+4. **Ancestry** — the observed `HEAD` SHALL be a descendant of the stored `HEAD` (fast-forward only). Ancestry is verified by `git merge-base --is-ancestor <stored> <observed>`.
+
+On success, `RECONCILIATE`:
+
+- writes the full current `repo_state` (HEAD, BRANCH, identity, fingerprint) as a standard `update()` under transition type `REPOSITORY_RECONCILIATION`;
+- triggers a mandatory `COMMIT` checkpoint for the active mission (if any);
+- produces a `RECONCILIATED` outcome with `old_HEAD`, `new_HEAD`, `repository_id`, and both old/new fingerprint hashes;
+- records the transition audit entry with `from = old_HEAD`, `to = new_HEAD`.
+
+An implementation SHALL support the `reconcile-repository` CLI command with `--actor` (default `AGENT:orchestrator:local`) and optional `--expected-revision` (defaults to the loaded state revision).
+
 ---
 
 ## 6. Checkpoint Manager
@@ -517,6 +538,7 @@ Checkpoint Manager SHALL create a verified automatic checkpoint immediately afte
 | mission completes/cancels/fails | `MISSION_FINISH` | terminal status, all gate/evidence refs, final HEAD/BRANCH |
 | validation gate reaches a verdict or resets from recovery | `VALIDATION` | gate, validator, artifact hashes, verdict and checkpointed prior verdict |
 | repository commit changes `HEAD` | `COMMIT` | prior/new HEAD, BRANCH, dirty fingerprint, affected assignment refs |
+| repository state reconciliation binds a new HEAD | `COMMIT` | prior/new HEAD, BRANCH, repository_id, old/new fingerprint, reconciled by orchestrator |
 | ACP FAILURE, agent failure, or state integrity failure is recorded | `FAILURE` | failure class/ref, agent/assignment, evidence and last good point |
 | orderly interruption, stale heartbeat, shutdown, or lock crash is detected | `INTERRUPTION` | interrupted agent/assignment, safe next point, unknown work declaration |
 
@@ -597,7 +619,7 @@ Repository validation SHALL use Git plumbing or equivalent authoritative Git dat
 
 - `repo_state.repository_id` matches the current normalized repository identity;
 - `HEAD` resolves to a commit; `BRANCH` exists locally and resolves to the same commit;
-- current `HEAD` and `BRANCH` equal state for active/validating work, or divergence is represented by a committed transition/checkpoint;
+- current `HEAD` and `BRANCH` equal state for active/validating work, or divergence is represented by a committed transition/checkpoint (the only sanctioned path to clear `REPOSITORY_DIVERGENCE` is Section 5.5 repository state reconciliation);
 - every checkpoint HEAD resolves in the same repository;
 - each artifact reference remains inside root and has the declared hash; and
 - current dirty paths equal the stored fingerprint or are recorded in a later checkpoint/recovery record.

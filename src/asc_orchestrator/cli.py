@@ -63,6 +63,21 @@ def _parser() -> argparse.ArgumentParser:
         "validate-state",
         help="run PESE layout, chain, contract, and repository integrity checks",
     )
+    reconcile = commands.add_parser(
+        "reconcile-repository",
+        help="record an authorized Git HEAD advance in PESE repository state",
+    )
+    reconcile.add_argument(
+        "--actor",
+        default="AGENT:orchestrator:local",
+        help="orchestrator actor recording the reconciliation",
+    )
+    reconcile.add_argument(
+        "--expected-revision",
+        type=int,
+        default=None,
+        help="expected state revision; defaults to the loaded state revision",
+    )
     mission_validate = commands.add_parser(
         "validate-mission", help="validate an MSS v1.0 mission-specification file"
     )
@@ -842,6 +857,7 @@ def _pese_exit_code(outcome: PESEOutcome) -> int:
             "CHECKPOINTED",
             "RESUME_PLAN",
             "NO_WORK",
+            "RECONCILIATED",
         }
         else 2
     )
@@ -900,7 +916,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("validation=PASS")
             return 0
 
-        if args.command in {"state", "resume", "checkpoint", "validate-state"}:
+        if args.command in {
+            "state",
+            "resume",
+            "checkpoint",
+            "validate-state",
+            "reconcile-repository",
+        }:
             store = PESEStore(config.repository_root)
             if args.command == "state":
                 outcome = (
@@ -912,6 +934,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 outcome = store.resume()
             elif args.command == "checkpoint":
                 outcome = store.checkpoint(args.mission_id, "MANUAL", actor=args.actor)
+            elif args.command == "reconcile-repository":
+                expected = args.expected_revision
+                if expected is None:
+                    loaded = store.load(actor=args.actor)
+                    if loaded.code != "STATE_LOADED":
+                        _emit_pese_outcome(loaded)
+                        return _pese_exit_code(loaded)
+                    expected = loaded.data["envelope"]["revision"]
+                outcome = store.reconcile_repository(
+                    actor=args.actor, expected_revision=expected
+                )
             else:
                 outcome = store.validate()
             _emit_pese_outcome(outcome)
