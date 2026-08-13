@@ -1720,6 +1720,7 @@ class PESEStore:
         for gate_id, gate in gates.items():
             gate_fields = {
                 "mission_id",
+                "milestone_id",
                 "status",
                 "validator_agent_id",
                 "manifest_version",
@@ -2608,6 +2609,17 @@ class PESEStore:
             if actor not in mission.get("assigned_agent_ids", ()):
                 raise PESEError("UNAUTHORIZED", "actor is not assigned to the mission")
             self._validate_manifest_ownership(mission, actor)
+        elif kind == "MILESTONE_STATUS":
+            # EEF-owned cursor advance (EEF §8.4).  resume() already verified
+            # the active mission against its TBE manifest, so authorization is
+            # the same mission-member rule as MISSION_STATUS without a second
+            # manifest read.  The subject is the mission_id.
+            mission = before["mission_state"].get("missions", {}).get(subject, {})
+            if actor not in mission.get("assigned_agent_ids", ()):
+                raise PESEError(
+                    "UNAUTHORIZED",
+                    "actor is not assigned to the mission",
+                )
         elif kind == "VALIDATION_GATE":
             gate = before["validation_state"].get("gates", {}).get(subject, {})
             if gate.get("validator_agent_id") != actor:
@@ -2891,9 +2903,12 @@ class PESEStore:
             ]
             if active_mission_id is not None and not relevant:
                 continue
-            mission_ids = {item.get("mission_id") for item in relevant}
+            # Gates are scoped to milestones via milestone_id; only gates for
+            # the current milestone are required to be GREEN.
             required_gates = [
-                gate for gate in gates.values() if gate.get("mission_id") in mission_ids
+                gate
+                for gate in gates.values()
+                if gate.get("milestone_id") == milestone.get("id")
             ]
             if (
                 not relevant

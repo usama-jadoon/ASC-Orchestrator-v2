@@ -340,11 +340,11 @@ class TeamManifest:
         lines += [
             "",
             "## ESCALATION ROUTES",
-            "| Member | Route (L0→L4) |",
+            "| Member | Route (L0->L4) |",
             "| --- | --- |",
         ]
         lines += [
-            f"| {agent} | {' → '.join(route)} |"
+            f"| {agent} | {' -> '.join(route)} |"
             for agent, route in self.escalation_routes
         ]
         lines += [
@@ -838,6 +838,10 @@ def bind_manifest_to_pese(
             phase: f"TBE:{manifest.mission_id}:PHASE:{phase}"
             for phase in sorted(set(assignment_phase.values()))
         }
+        # Map gate to milestone via validator's phase
+        validator_phase = {
+            validator: member_phase[validator] for gate, validator, _ in gate_rows
+        }
         target["execution_state"]["milestones"].extend(
             {
                 "id": phase_ids[phase],
@@ -898,10 +902,12 @@ def bind_manifest_to_pese(
                 "interruption": None,
             }
         for gate, validator, _ in gate_rows:
+            validator_phase_val = validator_phase[validator]
             target["validation_state"]["gates"][
                 f"GATE:{manifest.mission_id}:{gate}"
             ] = {
                 "mission_id": manifest.mission_id,
+                "milestone_id": phase_ids.get(validator_phase_val),
                 "status": "PENDING",
                 "validator_agent_id": validator,
                 "manifest_version": manifest.version,
@@ -1634,7 +1640,7 @@ def _dependencies(
             ):
                 raise TBEError(
                     "CONTRACT_INCOMPATIBLE",
-                    f"{parent} → {demand.demand_id} lacks {demand.handoff_message_type} contract compatibility",
+                    f"{parent} -> {demand.demand_id} lacks {demand.handoff_message_type} contract compatibility",
                 )
             # Edges are assignment-level.  Two sequential assignments may be
             # owned by the same member, which is valid and must not become a

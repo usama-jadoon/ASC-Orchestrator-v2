@@ -631,6 +631,7 @@ Manifest Version: 1
         state["validation_state"]["gates"] = {
             "GATE:qa": {
                 "mission_id": MISSION,
+                "milestone_id": "IMPLEMENT",
                 "status": "PENDING",
                 "validator_agent_id": ACTOR,
                 "manifest_version": 1,
