@@ -177,7 +177,7 @@ def _parser() -> argparse.ArgumentParser:
         "key-validate", help="verify CKS key records, fingerprints, and ledgers"
     )
     aex_commands = {
-        "aex-dispatch": "claim a READY assignment: READY → IN_PROGRESS",
+        "aex-dispatch": "claim a READY assignment: READY -> IN_PROGRESS",
         "aex-fail": "mark an IN_PROGRESS assignment as FAILED",
         "aex-block": "block a READY or IN_PROGRESS assignment",
         "aex-unblock": "release a BLOCKED assignment back to READY",
