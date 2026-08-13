@@ -104,6 +104,33 @@ class _ExecutionTestBase(unittest.TestCase):
     def _session(self) -> ExecutionSession:
         return ExecutionSession(self._context(), actor=self.actor)
 
+    def _drain_assignments(self) -> None:
+        """Drive all mission assignments to COMPLETED via AEX dispatch+complete.
+
+        Picks up D1-driven dependent promotions between iterations so the full
+        chain is drained without the caller needing to know the order.
+        """
+        from asc_orchestrator.aex import AEX
+
+        aex = AEX(self.root)
+        for _ in range(10):
+            loaded = self.store.load(actor=self.actor)
+            state = loaded.data["envelope"]["state"]
+            assignments = state["execution_state"].get("assignments", {})
+            ready = sorted(
+                aid
+                for aid, a in assignments.items()
+                if a.get("mission_id") == self.mission_id and a.get("status") == "READY"
+            )
+            if not ready:
+                break
+            for aid in ready:
+                agent = assignments[aid]["assigned_agent_id"]
+                dispatch_outcome = aex.dispatch(self.mission_id, aid, agent)
+                self.assertEqual(dispatch_outcome.code, "UPDATED")
+                record = aex.complete(self.mission_id, aid, agent)
+                self.assertEqual(record.get("status"), "COMPLETED")
+
     def _bind_second_mission(self) -> str:
         """Bind a second mission so the first is no longer active."""
         m = mission(mission_id="MISSION:other")
@@ -354,6 +381,9 @@ class TestComplete(_ExecutionTestBase):
     def test_complete_advances_mission_to_validating(self) -> None:
         session = self._session()
         session.start()
+        # D3: complete() requires all assignments COMPLETED (EEF §4.1).
+        self._drain_assignments()
+        session = self._session()  # rebind after state mutation
         outcome = session.complete()
         self.assertEqual(outcome.code, "UPDATED")
         state = self.store.load().data["envelope"]["state"]
@@ -369,6 +399,9 @@ class TestComplete(_ExecutionTestBase):
         # terminal COMPLETED/CANCELLED/FAILED, so no mandatory checkpoint yet.
         session = self._session()
         session.start()
+        # D3: complete() requires all assignments COMPLETED (EEF §4.1).
+        self._drain_assignments()
+        session = self._session()  # rebind after state mutation
         outcome = session.complete()
         self.assertEqual(outcome.code, "UPDATED")
         self.assertIsNone(outcome.data.get("checkpoint"))
@@ -381,6 +414,19 @@ class TestComplete(_ExecutionTestBase):
         session = self._session()
         outcome = session.complete()
         self.assertEqual(outcome.code, "INVALID_TRANSITION")
+
+    def test_complete_rejects_active_mission_with_unfinished_assignments(self) -> None:
+        # D3: complete() must refuse to leave ACTIVE while any assignment of
+        # the mission is still unfinished (EEF §4.1).  Test the guard itself.
+        session = self._session()
+        session.start()
+        outcome = session.complete()
+        self.assertEqual(outcome.code, "INVALID_TRANSITION")
+        self.assertEqual(outcome.findings[0]["code"], "ASSIGNMENTS_INCOMPLETE")
+        # Mission stays ACTIVE; nothing was mutated.
+        state = self.store.load().data["envelope"]["state"]
+        m = state["mission_state"]["missions"][self.mission_id]
+        self.assertEqual(m["status"], "ACTIVE")
 
 
 class TestStatus(_ExecutionTestBase):

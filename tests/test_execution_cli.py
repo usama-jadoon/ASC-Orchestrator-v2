@@ -251,6 +251,52 @@ class ExecutionCliTests(unittest.TestCase):
         self.assertIn("validation=PASS", output)
         return root
 
+    def _drain_mission(self, root: Path, mission_id: str) -> None:
+        """Start the mission and drive every assignment to COMPLETED via AEX."""
+        self._run(root, "execution-start", "--mission-id", mission_id)
+        from asc_orchestrator.pese import PESEStore
+
+        store = PESEStore(root)
+        for _ in range(10):
+            loaded = store.load(actor="AGENT:orchestrator:local")
+            self.assertEqual(loaded.code, "STATE_LOADED")
+            assignments = (
+                loaded.data["envelope"]["state"]
+                .get("execution_state", {})
+                .get("assignments", {})
+            )
+            ready = sorted(
+                aid
+                for aid, a in assignments.items()
+                if a.get("mission_id") == mission_id and a.get("status") == "READY"
+            )
+            if not ready:
+                break
+            for aid in ready:
+                agent = assignments[aid]["assigned_agent_id"]
+                code, out = self._run(
+                    root,
+                    "aex-dispatch",
+                    "--mission-id",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-dispatch {aid}: {out}")
+                code, out = self._run(
+                    root,
+                    "aex-complete",
+                    "--mission-id",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-complete {aid}: {out}")
+
     def test_full_lifecycle_cancel_via_cli(self) -> None:
         with TemporaryDirectory() as directory:
             root = self._bound_mission(directory)
@@ -309,11 +355,8 @@ class ExecutionCliTests(unittest.TestCase):
     def test_complete_advances_mission_to_validating_via_cli(self) -> None:
         with TemporaryDirectory() as directory:
             root = self._bound_mission(directory)
-            code, output = self._run(
-                root, "execution-start", "--mission-id", "MISSION:cli"
-            )
-            self.assertEqual(code, 0, output)
-            self.assertIn("outcome=UPDATED", output)
+            # D3: complete() requires all assignments COMPLETED (EEF §4.1).
+            self._drain_mission(root, "MISSION:cli")
 
             code, output = self._run(
                 root, "execution-complete", "--mission-id", "MISSION:cli"

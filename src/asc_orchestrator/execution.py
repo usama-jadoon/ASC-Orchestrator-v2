@@ -448,6 +448,35 @@ def _recompute_candidates(state: dict[str, Any], mission_id: str) -> list[str]:
     return candidates
 
 
+def _promote_ready_dependents(state: dict[str, Any], mission_id: str) -> int:
+    """Promote PENDING assignments to READY once all dependencies are COMPLETED.
+
+    D1 fix: completion of an assignment unlocks its dependents.  A transitive
+    loop keeps scanning so that when a single completion unlocks several
+    assignments (a diamond), every newly eligible dependent is promoted in the
+    same transaction.  Sequential chains still advance one link per completion:
+    a dependent whose predecessor is merely READY (not COMPLETED) stays PENDING.
+    """
+    assignments = state.get("execution_state", {}).get("assignments", {})
+    promoted = 0
+    changed = True
+    while changed:
+        changed = False
+        for aid, a in assignments.items():
+            if a.get("mission_id") != mission_id:
+                continue
+            if a.get("status") != "PENDING":
+                continue
+            deps = a.get("depends_on", [])
+            if deps and all(
+                assignments.get(dep, {}).get("status") == "COMPLETED" for dep in deps
+            ):
+                a["status"] = "READY"
+                promoted += 1
+                changed = True
+    return promoted
+
+
 def _eef_extension(state: dict[str, Any], mission_id: str) -> dict[str, Any]:
     ext = state.setdefault("extensions", {})
     mission_ext = ext.setdefault(EEF_EXTENSION_KEY, {})
@@ -589,6 +618,78 @@ class ExecutionSession:
         ext["last_event_sequence"] = ev["sequence"]
         return outcome
 
+    def _advance_milestone(
+        self,
+        state: dict[str, Any],
+        mission_id: str,
+        new_milestone_id: str,
+    ) -> PESEOutcome:
+        """Advance the persisted current_milestone_id via MILESTONE_STATUS.
+
+        Called by schedule() when PESE resume() signals MILESTONE_MISMATCH:
+        the computed milestone has moved past the persisted value (typically
+        because all assignments in a milestone completed and the gate that
+        milestone requires is GREEN).  EEF is the sole owner of this
+        transition per the EEF contract §8.
+
+        Returns the PESEOutcome from the update so callers can verify success.
+        The journal event is only recorded on successful update to avoid
+        misleading audit entries.
+        """
+        old_milestone = (
+            state.get("execution_state", {}).get("current_milestone_id") or ""
+        )
+
+        def _advance_mutate(s: dict[str, Any]) -> None:
+            s["execution_state"]["current_milestone_id"] = new_milestone_id
+
+        # Reload to obtain the current revision for the update.
+        loaded = self.ctx.store.load(actor=self.actor)
+        if loaded.code != "STATE_LOADED":
+            return PESEOutcome(
+                "HALTED",
+                f"OP-{utc_compact()}-{os.getpid()}",
+                utc_now(),
+                None,
+                None,
+                ({"code": "STATE_LOAD_FAILED"},),
+            )
+        if loaded.state_revision is None:
+            return PESEOutcome(
+                "HALTED",
+                f"OP-{utc_compact()}-{os.getpid()}",
+                utc_now(),
+                None,
+                None,
+                ({"code": "STATE_REVISION_MISSING"},),
+            )
+        outcome = self.ctx.store.update(
+            expected_revision=loaded.state_revision,
+            actor=self.actor,
+            transition_type="MILESTONE_STATUS",
+            subject=mission_id,
+            from_value=old_milestone,
+            to_value=new_milestone_id,
+            mutate=_advance_mutate,
+            evidence_refs=[],
+        )
+        if outcome.code == "UPDATED":
+            ev = self.journal.append(
+                event_type="MILESTONE_ADVANCED",
+                mission_id=mission_id,
+                assignment_id=None,
+                actor_agent_id=self.actor,
+                pese_revision=outcome.state_revision,
+                pese_state_sha256=outcome.state_sha256,
+                detail={
+                    "from_milestone_id": old_milestone,
+                    "to_milestone_id": new_milestone_id,
+                },
+            )
+            ext = _eef_extension(state, mission_id)
+            ext["last_event_sequence"] = ev["sequence"]
+        return outcome
+
     def schedule(self) -> ScheduleResult:
         loaded = self.ctx.store.load(actor=self.actor)
         if loaded.code != "STATE_LOADED":
@@ -600,6 +701,37 @@ class ExecutionSession:
         if active != self.ctx.mission_id:
             return ScheduleResult(code="NO_ACTIVE_MISSION")
         resume_outcome = self.ctx.store.resume()
+
+        # D1/D2 milestone handler: when a completion advances the computed
+        # milestone beyond the persisted current_milestone_id, resume() returns
+        # RECOVERY_REQUIRED.  EEF advances the milestone via a MILESTONE_STATUS
+        # transition and retries — no other runtime owns this.
+        if (
+            resume_outcome.code == "RECOVERY_REQUIRED"
+            and resume_outcome.data.get("reason") == "MILESTONE_MISMATCH"
+        ):
+            new_ms = resume_outcome.data.get("computed_milestone")
+            if new_ms is not None:
+                advance_outcome = self._advance_milestone(state, active, new_ms)
+                if advance_outcome.code != "UPDATED":
+                    return ScheduleResult(
+                        code="HALTED",
+                        findings=(
+                            {
+                                "code": "MILESTONE_ADVANCE_FAILED",
+                                "detail": f"advance returned {advance_outcome.code}",
+                            },
+                        ),
+                    )
+                # Reload after milestone mutation and retry resume.
+                loaded = self.ctx.store.load(actor=self.actor)
+                if loaded.code != "STATE_LOADED":
+                    return ScheduleResult(
+                        code="HALTED", findings=({"code": "STATE_LOAD_FAILED"},)
+                    )
+                state = loaded.data["envelope"]["state"]
+                resume_outcome = self.ctx.store.resume()
+
         if resume_outcome.code in {"SAFETY_HALT", "RECOVERY_REQUIRED"}:
             return ScheduleResult(
                 code=resume_outcome.code,
@@ -874,6 +1006,32 @@ class ExecutionSession:
                     {
                         "code": "MISSION_NOT_ACTIVE",
                         "detail": f"expected ACTIVE, got {mission.get('status')}",
+                    },
+                ),
+            )
+        # D3 guard: VALIDATING means session work is done (EEF §4.1), so every
+        # assignment must be COMPLETED before the mission may leave ACTIVE.
+        assignments = state["execution_state"].get("assignments", {})
+        unfinished = [
+            aid
+            for aid, a in assignments.items()
+            if a.get("mission_id") == self.ctx.mission_id
+            and a.get("status") != "COMPLETED"
+        ]
+        if unfinished:
+            return PESEOutcome(
+                "INVALID_TRANSITION",
+                f"OP-{utc_compact()}-{os.getpid()}",
+                utc_now(),
+                loaded.state_revision,
+                loaded.state_sha256,
+                (
+                    {
+                        "code": "ASSIGNMENTS_INCOMPLETE",
+                        "detail": (
+                            f"{len(unfinished)} assignment(s) not COMPLETED: "
+                            + ", ".join(sorted(unfinished)[:5])
+                        ),
                     },
                 ),
             )
