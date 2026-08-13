@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .audit import AuditError
-from .execution import EEFEventJournal
+from .execution import (
+    EEFEventJournal,
+    _promote_ready_dependents,
+    _recompute_candidates,
+)
 from .keys import CKSError, KeyStore
 from .pese import PESEOutcome, PESEStore, utc_compact, utc_now
 
@@ -342,7 +346,7 @@ class AEX:
     # --- public API ---------------------------------------------------------
 
     def dispatch(self, mission_id: str, assignment_id: str, actor: str) -> PESEOutcome:
-        """Claim a READY assignment: READY → IN_PROGRESS."""
+        """Claim a READY assignment: READY -> IN_PROGRESS."""
         with self._lock:
             result = self._load_state(actor)
             if isinstance(result, AEXError):
@@ -433,6 +437,11 @@ class AEX:
                     a["status"] = "COMPLETED"
                     a["completed_at"] = utc_now()
                     a["output_refs"] = list(output_refs)
+                # D1 fix: completing an assignment unlocks its dependents.  The
+                # promotion runs inside the same PESE transaction, so it is a
+                # bundled side-effect of the completing agent's action.
+                _promote_ready_dependents(state, mission_id)
+                _recompute_candidates(state, mission_id)
 
             outcome, new_rev, new_sha = self._transition(
                 actor,
@@ -560,7 +569,7 @@ class AEX:
         *,
         reason: str,
     ) -> PESEOutcome:
-        """Block a READY or IN_PROGRESS assignment: → BLOCKED."""
+        """Block a READY or IN_PROGRESS assignment: -> BLOCKED."""
         with self._lock:
             result = self._load_state(actor)
             if isinstance(result, AEXError):

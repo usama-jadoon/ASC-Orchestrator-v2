@@ -1,5 +1,42 @@
 # ASC Orchestrator v2 — Release Notes
 
+**Version 1.0.2** · 2026-08-12 · Maintenance patch release
+
+This maintenance patch resolves three lifecycle defects discovered in
+real-world InboxShield mission analysis — each a deadlock or premature
+advance in the v1.0 execution runtime.
+
+## What changed
+
+- **D1 — dependent assignments now promote.** A dependent assignment
+  (`depends_on`) previously stayed `PENDING` forever because no runtime path
+  promoted it to `READY` when its dependencies completed, stalling the work
+  chain. `AEX.complete()` now promotes dependents transitively and recomputes
+  the candidate set, so `schedule()` keeps returning work until the chain
+  drains.
+- **D2 — gates validate finished work only.** The AWS scheduler could start a
+  `PENDING` validation gate (`VALIDATE`, priority 60) while mission
+  assignments were still unfinished. The `VALIDATE` decision is now gated
+  behind full assignment completion.
+- **D3 — missions complete only when work is done.** EEF `complete()` could
+  move an `ACTIVE` mission to `VALIDATING` while assignments remained
+  unfinished. It now rejects the transition (`ASSIGNMENTS_INCOMPLETE`) unless
+  every assignment is `COMPLETED`, per EEF §4.1.
+- **Milestone cursor authorization.** The EEF-owned `MILESTONE_STATUS`
+  transition is now authorized for mission members, allowing the persisted
+  `current_milestone_id` cursor to advance under the same mission-member rule
+  as `MISSION_STATUS` instead of requiring orchestrator authority.
+- **Reproduction suite.** `tests/test_lifecycle_v102.py` (A–F) reproduces each
+  defect on v1.0.1 and locks in the corrected behavior.
+
+## Zero migration
+
+The software version advances to **1.0.2**; the PESE state schema stays
+**1.0.0**. No state migration is required — existing state remains valid and
+unchanged.
+
+---
+
 **Version 1.0.1** · 2026-08-11 · Maintenance bugfix release
 
 This maintenance release fixes a production defect in PESE v1.0: `repo_state`
@@ -93,7 +130,7 @@ Build the wheel, then install it (on any offline or air-gapped host):
 ```powershell
 python -m pip install build        # build frontend only; not a runtime dep
 python -m build
-python -m pip install dist/asc_orchestrator-1.0.1-py3-none-any.whl
+python -m pip install dist/asc_orchestrator-1.0.2-py3-none-any.whl
 ```
 
 ### Verify the installation

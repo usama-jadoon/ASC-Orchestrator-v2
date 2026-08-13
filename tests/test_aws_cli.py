@@ -234,6 +234,52 @@ class AwsCliTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def _drain_mission(self, mission_id: str) -> None:
+        """Start the mission and drive every assignment to COMPLETED via AEX."""
+        self._run(self.root, "execution-start", "--mission-id", mission_id)
+        from asc_orchestrator.pese import PESEStore
+
+        store = PESEStore(self.root)
+        for _ in range(10):
+            loaded = store.load(actor="AGENT:orchestrator:local")
+            self.assertEqual(loaded.code, "STATE_LOADED")
+            assignments = (
+                loaded.data["envelope"]["state"]
+                .get("execution_state", {})
+                .get("assignments", {})
+            )
+            ready = sorted(
+                aid
+                for aid, a in assignments.items()
+                if a.get("mission_id") == mission_id and a.get("status") == "READY"
+            )
+            if not ready:
+                break
+            for aid in ready:
+                agent = assignments[aid]["assigned_agent_id"]
+                code, out = self._run(
+                    self.root,
+                    "aex-dispatch",
+                    "--mission-id",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-dispatch {aid}: {out}")
+                code, out = self._run(
+                    self.root,
+                    "aex-complete",
+                    "--mission-id",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-complete {aid}: {out}")
+
     # -- scheduler-tick -------------------------------------------------------
 
     def test_tick_exit_zero(self) -> None:
@@ -365,9 +411,11 @@ class AwsCliTests(unittest.TestCase):
 
     def test_cycle_preserves_decision_type(self) -> None:
         """scheduler-cycle records the decision type of the tick."""
+        # D2: VALIDATE requires all assignments COMPLETED. Drain mission first.
+        self._drain_mission("MISSION:aws-cli")
         self._run(self.root, "scheduler-tick")
         _, output = self._run(self.root, "scheduler-cycle", "--cycle-id", "CYCLE:00001")
-        # Base fixture first tick evaluates VALIDATE (PENDING gate).
+        # After assignments done, first tick evaluates VALIDATE (PENDING gate).
         self.assertIn("decision_type=VALIDATE", output)
         self.assertIn("action_code=GATE_START", output)
 
@@ -404,10 +452,12 @@ class AwsCliTests(unittest.TestCase):
 
     def test_report_counts_decision_types(self) -> None:
         """scheduler-report aggregates decision counts per type."""
+        # D2: VALIDATE requires all assignments COMPLETED. Drain mission first.
+        self._drain_mission("MISSION:aws-cli")
         self._run(self.root, "scheduler-tick")
         _, output = self._run(self.root, "scheduler-report")
         self.assertIn("decision_counts=", output)
-        # First tick produces VALIDATE (PENDING gate).
+        # After assignments done, first tick produces VALIDATE (PENDING gate).
         self.assertIn("VALIDATE", output)
 
     def test_report_reflects_disable(self) -> None:
