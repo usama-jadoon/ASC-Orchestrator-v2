@@ -3,7 +3,7 @@
 A deterministic, stdlib-only release verifier that certifies that the ASC
 Orchestrator v2 source tree is production-release ready.  REL v1.0 verifies
 the packaging metadata declared in ``pyproject.toml`` (production version
-``1.0.1``, dependency-free wheel contract, console entry point, ``src``
+``1.0.2``, dependency-free wheel contract, console entry point, ``src``
 layout), the presence of every canonical v1.0 contract specification, the
 importability of every runtime module, and the presence of the per-contract
 unit and CLI test suites.
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-PRODUCTION_VERSION = "1.0.1"
+PRODUCTION_VERSION = "1.0.2"
 
 PROJECT_NAME = "asc-orchestrator"
 CONSOLE_ENTRY_POINT = "asc_orchestrator.cli:main"

@@ -5,6 +5,37 @@ All notable changes to the ASC Orchestrator v2 project are documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-08-12
+
+Maintenance patch release. Software version advances to `1.0.2`; the PESE
+state schema remains `1.0.0` and no state migration is required.
+
+### Fixed
+
+- D1: a dependent assignment (`depends_on`) stayed `PENDING` forever because
+  no runtime path promoted it to `READY` when its dependencies completed.
+  `AEX.complete()` now promotes dependent assignments and recomputes the
+  candidate set, so the work chain drains end to end.
+- D2: the AWS scheduler could start a `PENDING` validation gate (`VALIDATE`,
+  priority 60) while mission assignments were still unfinished. The `VALIDATE`
+  decision now requires every assignment of the mission to be `COMPLETED`
+  before a gate is started.
+- D3: EEF `complete()` could move an `ACTIVE` mission to `VALIDATING` while
+  assignments remained unfinished. `complete()` now rejects the transition
+  with `ASSIGNMENTS_INCOMPLETE` unless every assignment is `COMPLETED`.
+
+### Added
+
+- `tests/test_lifecycle_v102.py` — deterministic reproduction tests (A–F)
+  locking in the corrected D1/D2/D3 behavior.
+- PESE authorization for the EEF-owned `MILESTONE_STATUS` transition so the
+  mission milestone cursor advances under mission-member authority.
+
+### Changed
+
+- Software release version advanced to `1.0.2`; PESE `schema_version` remains
+  `1.0.0` with zero state migration.
+
 ## [1.0.1] - 2026-08-11
 
 Maintenance bugfix release. Software version advances to `1.0.1`; the PESE
