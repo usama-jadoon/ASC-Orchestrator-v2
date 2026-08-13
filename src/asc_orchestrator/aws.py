@@ -501,9 +501,11 @@ class AutonomousScheduler:
                     target_assignment_id=assignment_id,
                 )
 
-            # 5. VALIDATE — a PENDING gate exists.
+            # 5. VALIDATE — a PENDING gate exists AND every assignment in the
+            #    mission is COMPLETED.  A gate validates finished work, so it
+            #    must never start while assignments are still unfinished.
             gate = self._next_pending_gate(state, active)
-            if gate is not None:
+            if gate is not None and self._all_assignments_done(state, active):
                 gate_id, validator = gate
                 return SchedulingDecision(
                     "VALIDATE",

@@ -185,6 +185,55 @@ class _AWSBaseTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.__exit__(None, None, None)
 
+    def _drain_mission(self, mission_id: str) -> None:
+        """Start the mission and drive every assignment to COMPLETED via AEX.
+
+        After execution-start the root assignments become READY.  The helper
+        dispatches and completes each READY assignment (picking up D1-driven
+        promotions) until the full chain is COMPLETED.
+        """
+        self._run(self._root, "execution-start", "--mission", mission_id)
+        store = PESEStore(self._root)
+        for _ in range(10):
+            loaded = store.load(actor=ACTOR_ORCHESTRATOR)
+            self.assertEqual(loaded.code, "STATE_LOADED")
+            assignments = (
+                loaded.data["envelope"]["state"]
+                .get("execution_state", {})
+                .get("assignments", {})
+            )
+            ready = sorted(
+                aid
+                for aid, a in assignments.items()
+                if a.get("mission_id") == mission_id and a.get("status") == "READY"
+            )
+            if not ready:
+                break
+            for aid in ready:
+                agent = assignments[aid]["assigned_agent_id"]
+                code, out = self._run(
+                    self._root,
+                    "aex-dispatch",
+                    "--mission",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-dispatch {aid}: {out}")
+                code, out = self._run(
+                    self._root,
+                    "aex-complete",
+                    "--mission",
+                    mission_id,
+                    "--assignment-id",
+                    aid,
+                    "--actor",
+                    agent,
+                )
+                self.assertEqual(code, 0, f"aex-complete {aid}: {out}")
+
     @staticmethod
     def _run(root: Path, *arguments: str) -> tuple[int, str]:
         output = StringIO()
@@ -385,7 +434,12 @@ class TestDecisionModel(_AWSBaseTestCase):
         self.assertEqual(decision.target_assignment_id, "ASSIGNMENT:build")
 
     def test_validate_when_gate_pending(self) -> None:
-        """VALIDATE: active mission with a PENDING validation gate."""
+        """VALIDATE: active mission with a PENDING gate and all assignments done.
+
+        D2-corrected: VALIDATE fires only when every assignment in the mission
+        is COMPLETED.  The helper drains the full assignment chain first.
+        """
+        self._drain_mission("MISSION:aws")
         decision = self._scheduler().evaluate()
         self.assertEqual(decision.decision_type, "VALIDATE")
         self.assertEqual(decision.priority, 60)
@@ -412,11 +466,14 @@ class TestDecisionModel(_AWSBaseTestCase):
         self.assertEqual(decision.target_mission_id, "MISSION:aws")
 
     def test_monitor_health_when_nothing_to_do(self) -> None:
-        """MONITOR_HEALTH: active mission, no ready assignment or pending gate."""
+        """MONITOR_HEALTH: active mission, no ready assignment or pending gate.
+
+        D2-corrected: with assignments unfinished and gate PENDING, the
+        scheduler returns MONITOR_HEALTH (no actionable work).
+        """
         scheduler = self._scheduler()
-        # Consume the PENDING gate so no actionable decision remains.
         cycle = scheduler.tick()
-        self.assertEqual(cycle.decision_type, "VALIDATE")
+        self.assertEqual(cycle.decision_type, "MONITOR_HEALTH")
         decision = scheduler.evaluate()
         self.assertEqual(decision.decision_type, "MONITOR_HEALTH")
         self.assertEqual(decision.priority, 40)
@@ -599,8 +656,9 @@ class TestTick(_AWSBaseTestCase):
         self.assertEqual(report.total_cycles, 1)
         self.assertEqual(report.completed_cycles, 1)
         self.assertEqual(report.failed_cycles, 0)
-        # The first tick on the bound fixture evaluates VALIDATE (PENDING gate).
-        self.assertIn("VALIDATE", report.decision_counts)
+        # The first tick on the bound fixture evaluates MONITOR_HEALTH (D2:
+        # VALIDATE no longer fires while assignments are unfinished).
+        self.assertIn("MONITOR_HEALTH", report.decision_counts)
 
     def test_report_after_disable(self) -> None:
         scheduler = self._scheduler()
@@ -683,6 +741,11 @@ class TestPESEIntegration(_AWSBaseTestCase):
         self.assertFalse(aws_ext["config"]["enabled"])
 
     def test_cycle_record_detail(self) -> None:
+        """VALIDATE cycle detail records the GATE_START outcome.
+
+        D2-corrected: drain all assignments first so VALIDATE fires on tick.
+        """
+        self._drain_mission("MISSION:aws")
         scheduler = self._scheduler()
         cycle = scheduler.tick()
         self.assertIsInstance(cycle.detail, dict)
