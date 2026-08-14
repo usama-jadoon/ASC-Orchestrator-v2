@@ -4,7 +4,45 @@ All notable changes to the ASC Orchestrator v2 project are documented in this fi
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.0.3] - 2026-08-15
 
+Backward-compatible remediation release. Software version advances to `1.0.3`;
+the PESE state schema remains `1.0.0` and no state migration is required.
+
+### Fixed
+
+- RC-001: historical PESE `1.0.0` persisted states created under earlier
+  `1.0.x` releases legitimately omit `milestone_id` on validation gates
+  (e.g. InboxShield rev52 history, revisions 2–52). The validator previously
+  rejected those states because `milestone_id` was mandatory in the exact
+  field-set equality. `milestone_id` is now treated as a **backward-compatible
+  optional extension**: legacy gates without it remain valid when every other
+  required field is present and no alien fields exist; gates that carry it are
+  still validated strictly (non-empty string referencing a declared
+  milestone). Current-state validation is unchanged and integrity guarantees
+  stay fail-closed.
+- RC-002 (`STATE_CHAIN_INVALID`): proven to be a cascade symptom of RC-001 —
+  schema rejection pinned the accepted chain position at revision 1, so the
+  later comparison then reported chain invalidity. RC-002 disappears once
+  RC-001 is fixed; no separate chain-repair patch was introduced.
+- RC-003 (audit harness defect): `audit/build_fixtures.py` regenerates the
+  synthetic `v1.0.1` fixture with a correct deterministic `rev1 → rev2` SHA
+  chain (`previous_state_sha256` now equals `rev1.state_sha256`). A
+  chain-validation guard (`--validate-corpus`) blocks broken chains from
+  entering the compatibility corpus. This is audit tooling only — it does not
+  touch ASC runtime or the real InboxShield state.
+
+### Added
+
+- `tests/test_pese_v103_compat.py` — regression tests A–I reproducing the real
+  historical gate shape and locking in the backward-compatible boundary.
+- `audit/build_fixtures.py` — deterministic v1.0.1 fixture generator with a
+  corpus-entry chain guard.
+
+### Changed
+
+- Software release version advanced to `1.0.3`; PESE `schema_version` remains
+  `1.0.0` with zero state migration.
 ## [1.0.2] - 2026-08-12
 
 Maintenance patch release. Software version advances to `1.0.2`; the PESE

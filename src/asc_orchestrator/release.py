@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-PRODUCTION_VERSION = "1.0.2"
+PRODUCTION_VERSION = "1.0.3"
 
 PROJECT_NAME = "asc-orchestrator"
 CONSOLE_ENTRY_POINT = "asc_orchestrator.cli:main"

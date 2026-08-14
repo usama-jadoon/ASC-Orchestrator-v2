@@ -1,5 +1,43 @@
 # ASC Orchestrator v2 — Release Notes
 
+**Version 1.0.3** · 2026-08-15 · Backward-compatible remediation release
+
+This remediation resolves one production root cause and two audit-harness
+defects discovered in the frozen deep-audit inventory. It makes legitimate
+historical PESE `1.0.0` states loadable and validatable without weakening
+current-state validation or integrity guarantees.
+
+## What changed
+
+- **RC-001 — historical gates without `milestone_id` are now accepted.**
+  Validation gates persisted under earlier `1.0.x` releases legitimately
+  omit `milestone_id` (InboxShield rev52, revisions 2–52). `milestone_id` is
+  now a backward-compatible optional extension under PESE `1.0.0`: legacy
+  gates without it remain valid when all other required fields are present and
+  no alien fields exist; gates that carry it are still validated strictly
+  (non-empty string referencing a declared milestone). No historical file is
+  mutated or rewritten in place.
+- **RC-002 — cascade symptom, not a second root cause.** The
+  `STATE_CHAIN_INVALID` finding was a cascade of RC-001: schema rejection
+  pinned the accepted chain position at revision 1, so the subsequent
+  comparison reported chain invalidity. Removing RC-001 makes RC-002
+  disappear; no separate chain-repair patch was introduced.
+- **RC-003 — audit harness fixture chain corrected.** The synthetic `v1.0.1`
+  fixture generator produced a broken `rev2 → rev1` SHA relationship.
+  `audit/build_fixtures.py` now regenerates it with the correct
+  `previous_state_sha256` and adds a corpus-entry chain guard. Audit tooling
+  only — it does not touch ASC runtime or the real InboxShield state.
+- **Regression suite.** `tests/test_pese_v103_compat.py` (A–I) reproduces the
+  real historical gate shape and locks in the backward-compatible boundary.
+
+## Zero migration
+
+The software version advances to **1.0.3**; the PESE state schema stays
+**1.0.0**. No state migration is required — existing state remains valid and
+unchanged.
+
+---
+
 **Version 1.0.2** · 2026-08-12 · Maintenance patch release
 
 This maintenance patch resolves three lifecycle defects discovered in
