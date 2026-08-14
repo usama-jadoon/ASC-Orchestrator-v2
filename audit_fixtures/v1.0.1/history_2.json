@@ -1,0 +1,69 @@
+{
+  "created_at": "2026-08-14T01:29:49.330Z",
+  "file_sha256": "788d783ae8b05262786436afa8c9f263ce8b0e9878e555b367f85900b967f0f4",
+  "format": "PESE/v1.0",
+  "kind": "state",
+  "previous_revision": 1,
+  "previous_state_sha256": "56d129a58a3d583f762cf55878772610c1af53b7b9a1a47b9de085bd623ad3cc",
+  "revision": 2,
+  "state": {
+    "agent_state": {
+      "agents": {}
+    },
+    "company_state": {
+      "company_id": "COMPANY:asc-orchestrator-v2",
+      "created_at": "2026-08-14T01:29:49.030Z",
+      "message_protocol_ref": "docs/ACP_v1.0.md",
+      "protocols": {
+        "ACP": "1.0",
+        "ACR": "1.0",
+        "PESE": "1.0",
+        "TBE": "1.0"
+      },
+      "registry_ref": "docs/ACR_v1.0.md",
+      "status": "INITIALIZING",
+      "team_builder_ref": "docs/TBE_v1.0.md",
+      "updated_at": "2026-08-14T01:29:49.030Z"
+    },
+    "execution_state": {
+      "assignments": {},
+      "current_milestone_id": null,
+      "milestones": [],
+      "next_task_candidates": []
+    },
+    "extensions": {},
+    "mission_state": {
+      "active_mission_id": null,
+      "missions": {}
+    },
+    "recovery_state": {
+      "recoveries": {}
+    },
+    "repo_state": {
+      "BRANCH": "master",
+      "HEAD": "85410c99ef9c891c7dd6c41f32ec74ce39572472",
+      "dirty_paths": [],
+      "head_kind": "COMMIT",
+      "last_verified_at": "2026-08-14T01:29:49.301Z",
+      "origin_identity": "local:D:/Usama Data/All Software/ASC-Orchestrator-v2/audit_fixtures/build/v1.0.1",
+      "repository_id": "REPO:9e7f1f9dab6d769ae74a6b071d54be1ad26b9381ae1dce3db62bf708c026e490",
+      "root": ".",
+      "vcs": "git",
+      "worktree_fingerprint_sha256": "009132c1b801654a3275bb1162f832f4751a7a6deec054ba41c4dc45c9a24983"
+    },
+    "risk_state": {
+      "risks": {}
+    },
+    "schema_version": "1.0.0",
+    "transport_state": {
+      "channels": {},
+      "envelopes": {}
+    },
+    "validation_state": {
+      "artifacts": {},
+      "gates": {}
+    }
+  },
+  "state_sha256": "5e79723e3c64b5c5e2a97b8a8f9156a1396f13200edf32a917175b01838f6b12",
+  "writer": "AGENT:orchestrator:audit"
+}
