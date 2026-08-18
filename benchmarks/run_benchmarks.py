@@ -11,7 +11,6 @@ Usage::
 
 from __future__ import annotations
 
-import hashlib  # noqa: F401 - used by HMAC benchmarking
 import json
 import sys
 import tempfile
