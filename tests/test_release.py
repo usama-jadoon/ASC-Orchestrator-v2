@@ -87,7 +87,7 @@ class TestReleaseConstants(unittest.TestCase):
     """Verify the fixed constants that define the release vocabulary."""
 
     def test_production_version(self) -> None:
-        self.assertEqual(PRODUCTION_VERSION, "1.0.2")
+        self.assertEqual(PRODUCTION_VERSION, "1.0.3")
 
     def test_project_name(self) -> None:
         self.assertEqual(PROJECT_NAME, "asc-orchestrator")

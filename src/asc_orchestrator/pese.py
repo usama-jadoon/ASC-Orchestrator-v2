@@ -1717,21 +1717,32 @@ class PESEStore:
             raise PESEError(
                 "SCHEMA_INVALID", "validation_state.artifacts must be object"
             )
+        # ``milestone_id`` is a backward-compatible extension introduced after
+        # the original PESE 1.0.0 schema shipped.  Historical states persisted
+        # under earlier 1.0.x releases legitimately omit it (e.g. InboxShield
+        # rev52 history, revisions 2-52).  Treat it as an OPTIONAL extension:
+        # legacy gates WITHOUT ``milestone_id`` remain valid provided every
+        # other field is present and no alien fields are added.  Gates that DO
+        # carry ``milestone_id`` are validated strictly (all ten fields must be
+        # present and exactly the canonical set).  This keeps current-state
+        # validation strict while loading legitimate historical states without
+        # weakening any other invariant or mutating the persisted files.
+        gate_fields_required = {
+            "mission_id",
+            "status",
+            "validator_agent_id",
+            "manifest_version",
+            "criteria_refs",
+            "artifact_ids",
+            "last_checkpoint_id",
+            "verdict_at",
+        }
+        gate_fields_optional = {"milestone_id"}
         for gate_id, gate in gates.items():
-            gate_fields = {
-                "mission_id",
-                "milestone_id",
-                "status",
-                "validator_agent_id",
-                "manifest_version",
-                "criteria_refs",
-                "artifact_ids",
-                "last_checkpoint_id",
-                "verdict_at",
-            }
             if (
                 not isinstance(gate, Mapping)
-                or set(gate) != gate_fields
+                or not gate_fields_required <= set(gate)
+                or not set(gate) <= gate_fields_required | gate_fields_optional
                 or gate.get("status")
                 not in {
                     "PENDING",
@@ -1750,6 +1761,24 @@ class PESEStore:
                 raise PESEError(
                     "CONTRACT_INVALID", f"gate {gate_id} has unknown mission"
                 )
+            # When milestone_id is present it MUST be a non-empty string and
+            # MUST match a declared milestone id.  Legacy gates without it
+            # are valid (see backward-compat comment above).
+            ms_id = gate.get("milestone_id")
+            if ms_id is not None:
+                if not isinstance(ms_id, str) or ms_id == "":
+                    raise PESEError(
+                        "SCHEMA_INVALID",
+                        f"gate {gate_id!r} milestone_id must be non-empty string when present",
+                    )
+                known_milestones = {
+                    m.get("id") for m in state["execution_state"].get("milestones", [])
+                }
+                if ms_id not in known_milestones:
+                    raise PESEError(
+                        "CONTRACT_INVALID",
+                        f"gate {gate_id!r} references unknown milestone_id {ms_id!r}",
+                    )
             if gate.get("status") == "GREEN":
                 validator = agents.get(gate.get("validator_agent_id"), {})
                 artifact_ids = gate.get("artifact_ids", [])

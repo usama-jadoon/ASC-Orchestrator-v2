@@ -11,7 +11,6 @@ Usage::
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 import tempfile
@@ -59,7 +58,9 @@ def bench_hash_chaining() -> list[dict]:
         "mission_state": {"missions": {}},
     }
     results.append(_bench("pese.canonical_json (1KB)", lambda: canonical_json(state)))
-    results.append(_bench("pese.canonical_sha256 (1KB)", lambda: canonical_sha256(state)))
+    results.append(
+        _bench("pese.canonical_sha256 (1KB)", lambda: canonical_sha256(state))
+    )
     return results
 
 
@@ -75,11 +76,22 @@ def bench_key_operations() -> list[dict]:
         key_id = rec.key_id
         payload = b"benchmark payload " * 10
 
-        results.append(_bench("cks.create_key", lambda: store.create_key("AGENT:bench:test")))
+        results.append(
+            _bench("cks.create_key", lambda: store.create_key("AGENT:bench:test"))
+        )
         results.append(_bench("cks.load_key", lambda: store.load_key(key_id)))
-        results.append(_bench("cks.sign (180B)", lambda: store.sign(key_id, payload, "AGENT:bench:test")))
+        results.append(
+            _bench(
+                "cks.sign (180B)",
+                lambda: store.sign(key_id, payload, "AGENT:bench:test"),
+            )
+        )
         sig = store.sign(key_id, payload, "AGENT:bench:test")
-        results.append(_bench("cks.verify", lambda: store.verify(key_id, payload, sig.signature_hex)))
+        results.append(
+            _bench(
+                "cks.verify", lambda: store.verify(key_id, payload, sig.signature_hex)
+            )
+        )
         results.append(_bench("cks.status", lambda: store.status(key_id)))
     return results
 
@@ -92,7 +104,9 @@ def bench_health_operations() -> list[dict]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         store = HealthStore(root)
-        results.append(_bench("ahp.heartbeat", lambda: store.heartbeat("AGENT:bench:local")))
+        results.append(
+            _bench("ahp.heartbeat", lambda: store.heartbeat("AGENT:bench:local"))
+        )
         store.heartbeat("AGENT:bench:local")
         results.append(
             _bench(
@@ -113,8 +127,16 @@ def bench_pese_lifecycle() -> list[dict]:
         store = PESEStore(root)
         store.initialize("AGENT:orchestrator:bench")
         # initialize() rewrites the journal each call — use few iterations.
-        results.append(_bench("pese.initialize", lambda: store.initialize("AGENT:orchestrator:bench"), iterations=50))
-        results.append(_bench("pese.load", lambda: store.load(actor="AGENT:orchestrator:bench")))
+        results.append(
+            _bench(
+                "pese.initialize",
+                lambda: store.initialize("AGENT:orchestrator:bench"),
+                iterations=50,
+            )
+        )
+        results.append(
+            _bench("pese.load", lambda: store.load(actor="AGENT:orchestrator:bench"))
+        )
     return results
 
 
@@ -126,8 +148,12 @@ def bench_hmac_operations() -> list[dict]:
     key = b"0" * 32
     payload_1k = b"x" * 1024
     payload_64k = b"y" * 65536
-    results.append(_bench("hmac-sha256 (1KB)", lambda: hmac.new(key, payload_1k, "sha256")))
-    results.append(_bench("hmac-sha256 (64KB)", lambda: hmac.new(key, payload_64k, "sha256")))
+    results.append(
+        _bench("hmac-sha256 (1KB)", lambda: hmac.new(key, payload_1k, "sha256"))
+    )
+    results.append(
+        _bench("hmac-sha256 (64KB)", lambda: hmac.new(key, payload_64k, "sha256"))
+    )
     return results
 
 
@@ -151,8 +177,12 @@ def bench_risk_operations() -> list[dict]:
             engine.open(risk_id, "LOW", "perf-test", None, actor)
             engine.mitigate(risk_id, actor)
 
-        results.append(_bench("rkm.open+mitigate cycle", _open_and_mitigate, iterations=100))
-        results.append(_bench("rkm.check (5 risks)", lambda: engine.check("MISSION:bench")))
+        results.append(
+            _bench("rkm.open+mitigate cycle", _open_and_mitigate, iterations=100)
+        )
+        results.append(
+            _bench("rkm.check (5 risks)", lambda: engine.check("MISSION:bench"))
+        )
     return results
 
 
@@ -170,7 +200,12 @@ def main() -> None:
         bench_pese_lifecycle,
         bench_risk_operations,
     ]:
-        section_name = section_fn.__name__.replace("bench_", "").replace("_operations", "").replace("_", " ").title()
+        section_name = (
+            section_fn.__name__.replace("bench_", "")
+            .replace("_operations", "")
+            .replace("_", " ")
+            .title()
+        )
         print(f"\n--- {section_name} ---")
         results = section_fn()
         all_results.extend(results)
