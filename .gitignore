@@ -33,3 +33,11 @@ benchmarks/results.json
 .project-os/KEYS/
 .project-os/PESE/
 .project-os/AUDIT/
+# Local ASC development artifacts
+.claude/worktrees/
+.status
+final_verdict.txt
+spec_backup.py
+test_debug.db
+tests/*.bak
+tmp/
