@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Union
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from .models import MissionSpec, Task, VerificationCommand
 
