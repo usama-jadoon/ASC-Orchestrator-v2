@@ -176,6 +176,8 @@ class State:
                     "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
                     (task.status.value, updated_at, task.id),
                 )
+        return True
+
     def save_task(self, task: Task, mission_id: str) -> None:
         """Insert or update a task record."""
         with self._get_connection() as conn:
@@ -210,7 +212,6 @@ class State:
                     metadata_json,
                 ),
             )
-
 
     def record_attempt(self, attempt_data: Any) -> None:
         """Record task attempt details."""
@@ -288,6 +289,7 @@ class State:
                 ),
             )
             conn.commit()
+
     def get_events(self, mission_id: str) -> List[Dict[str, Any]]:
         """Retrieve events for a mission."""
         with self._get_connection() as conn:

@@ -4,21 +4,26 @@ Tests the execute -> verify -> retry -> commit pipeline, OMP adapter CLI,
 executor selection, working directory propagation, and retry enforcement.
 """
 
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from asc.adapters.mock import MockAdapter
 from asc.adapters.omp import OMPAdapter, OMPConfig
 from asc.driver import MissionDriver, build_adapter
-from asc.models import MissionDefaults, MissionSpec, Task, TaskStatus, VerificationCommand
+from asc.models import (
+    MissionDefaults,
+    MissionSpec,
+    Task,
+    TaskStatus,
+    VerificationCommand,
+)
 from asc.repo import Repository
 from asc.state import State
 
@@ -54,12 +59,16 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
                 mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
                 adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp"))
                 task = Task(id="t1", title="Test", prompt="Do stuff")
-                result = adapter.execute(task, {"working_directory": "/home/user/project with spaces"})
+                result = adapter.execute(
+                    task, {"working_directory": "/home/user/project with spaces"}
+                )
 
                 called_cmd = mock_run.call_args[0][0]
                 self.assertIn("--cwd", called_cmd)
                 cwd_idx = called_cmd.index("--cwd")
-                self.assertEqual(called_cmd[cwd_idx + 1], "/home/user/project with spaces")
+                self.assertEqual(
+                    called_cmd[cwd_idx + 1], "/home/user/project with spaces"
+                )
                 self.assertNotIn("--working-dir", called_cmd)
 
     def test_omp_no_timeout_flag(self):
@@ -88,6 +97,7 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
         with patch("shutil.which", return_value="/usr/local/bin/omp"):
             adapter = OMPAdapter(config=OMPConfig())
             exe = adapter._get_omp_executable()
+
     def test_omp_config_override_path(self):
         """Explicit OMP config path overrides PATH discovery."""
         with patch("shutil.which", return_value="/ignored/omp"):
@@ -96,6 +106,7 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
                     adapter = OMPAdapter(config=OMPConfig(omp_path="/custom/omp"))
                     exe = adapter._get_omp_executable()
                     self.assertEqual(exe, "/custom/omp")
+
     """Test execute -> verify order (not verify -> execute)."""
 
     def setUp(self):
@@ -123,7 +134,11 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
 
             def execute(self, task, context):
                 executed["count"] += 1
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         class TrackingVerifier:
             def __init__(self, timeout=300):
@@ -133,19 +148,63 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
                 verified["count"] += 1
                 cmd = commands[0]
                 if isinstance(cmd, str):
-                    return type("VR", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0, "success": True})()
-                return type("VR", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0, "success": True})()
+                    return type(
+                        "VR",
+                        (),
+                        {
+                            "exit_code": 0,
+                            "stdout": "",
+                            "stderr": "",
+                            "duration": 0.0,
+                            "success": True,
+                        },
+                    )()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 0,
+                        "stdout": "",
+                        "stderr": "",
+                        "duration": 0.0,
+                        "success": True,
+                    },
+                )()
 
-        driver = MissionDriver(spec=MissionSpec(id="m1", goal="G", tasks=[
-            Task(id="t1", title="T1", prompt="echo hi", command=VerificationCommand(command="echo verify"))
-        ]), db_path=str(self.db_path), adapter=TrackingAdapter())
+        driver = MissionDriver(
+            spec=MissionSpec(
+                id="m1",
+                goal="G",
+                tasks=[
+                    Task(
+                        id="t1",
+                        title="T1",
+                        prompt="echo hi",
+                        command=VerificationCommand(command="echo verify"),
+                    )
+                ],
+            ),
+            db_path=str(self.db_path),
+            adapter=TrackingAdapter(),
+        )
         driver.verifier = TrackingVerifier()
 
         # Run one task
         driver.mission_id = "m1"
-        driver.state.save_mission(MissionSpec(id="m1", goal="G", tasks=[
-            Task(id="t1", title="T1", prompt="echo hi", command=VerificationCommand(command="echo verify"))
-        ]))
+        driver.state.save_mission(
+            MissionSpec(
+                id="m1",
+                goal="G",
+                tasks=[
+                    Task(
+                        id="t1",
+                        title="T1",
+                        prompt="echo hi",
+                        command=VerificationCommand(command="echo verify"),
+                    )
+                ],
+            )
+        )
         driver.state.save_task(driver.state.get_tasks("m1")[0], "m1")
 
         # Manually invoke execute with retry for one task
@@ -183,15 +242,23 @@ class TestRetryEnforcement(unittest.TestCase):
 
             def execute(self, task, context):
                 attempt_count["exec"] += 1
-                return type("R", (), {"exit_code": 1, "stdout": "", "stderr": "fail", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 1, "stdout": "", "stderr": "fail", "duration": 0.0},
+                )()
 
         spec = MissionSpec(
             id="m1",
             goal="Test retries",
-            tasks=[Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 3})],
+            tasks=[
+                Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 3})
+            ],
             defaults=MissionDefaults(max_attempts=3),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=FailingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=FailingAdapter()
+        )
         driver._max_attempts = 3
 
         task = driver.state.get_tasks("m1")[0]
@@ -217,16 +284,24 @@ class TestRetryEnforcement(unittest.TestCase):
 
             def execute(self, task, context):
                 attempt_count["exec"] += 1
-                return type("R", (), {"exit_code": 1, "stdout": "", "stderr": "fail", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 1, "stdout": "", "stderr": "fail", "duration": 0.0},
+                )()
 
         # Spec says 5, task says 2
         spec = MissionSpec(
             id="m1",
             goal="Test retries",
-            tasks=[Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 2})],
+            tasks=[
+                Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 2})
+            ],
             defaults=MissionDefaults(max_attempts=5),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=FailingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=FailingAdapter()
+        )
         driver._max_attempts = 5  # driver-level fallback
 
         task = driver.state.get_tasks("m1")[0]
@@ -251,7 +326,11 @@ class TestRetryEnforcement(unittest.TestCase):
 
             def execute(self, task, context):
                 counts["exec"] += 1
-                return type("R", (), {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0},
+                )()
 
         class FailingVerifier:
             def __init__(self, timeout=300):
@@ -259,20 +338,34 @@ class TestRetryEnforcement(unittest.TestCase):
 
             def run_verification(self, commands, cwd="."):
                 counts["verify"] += 1
-                return type("VR", (), {"exit_code": 1, "stdout": "", "stderr": "verify fail", "duration": 0.0, "success": False})()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 1,
+                        "stdout": "",
+                        "stderr": "verify fail",
+                        "duration": 0.0,
+                        "success": False,
+                    },
+                )()
 
         spec = MissionSpec(
             id="m1",
             goal="Test retry on verify",
-            tasks=[Task(
-                id="t1",
-                title="T1",
-                prompt="echo hi",
-                command=VerificationCommand(command="exit 1"),
-                metadata={"max_attempts": 3},
-            )],
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="echo hi",
+                    command=VerificationCommand(command="exit 1"),
+                    metadata={"max_attempts": 3},
+                )
+            ],
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter()
+        )
         driver.verifier = FailingVerifier()
         driver._max_attempts = 3
 
@@ -292,103 +385,195 @@ class TestCommitOnlyAfterVerifyPass(unittest.TestCase):
         self.db_path = Path(self.temp_dir) / "test.db"
         # Init a git repo
         subprocess.run(["git", "init"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.temp_dir, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test"],
+            cwd=self.temp_dir,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=self.temp_dir,
+            capture_output=True,
+        )
         (Path(self.temp_dir) / "README.md").write_text("# Test\n")
-        subprocess.run(["git", "add", "README.md"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=self.temp_dir, capture_output=True)
+        subprocess.run(
+            ["git", "add", "README.md"], cwd=self.temp_dir, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=self.temp_dir, capture_output=True
+        )
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_no_commit_on_execution_failure(self):
         """No commit if execution fails."""
+
         class FailingAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
-                return type("R", (), {"exit_code": 1, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 1, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 1})],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(id="t1", title="T1", prompt="fail", metadata={"max_attempts": 1})
+            ],
             defaults=MissionDefaults(max_attempts=1),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=FailingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=FailingAdapter()
+        )
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
         # Should have 0 commits
         commits = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD"], cwd=self.temp_dir, capture_output=True, text=True
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=self.temp_dir,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         self.assertEqual(int(commits), 1)  # Only initial commit
 
     def test_no_commit_on_verification_failure(self):
         """No commit if execution succeeds but verification fails."""
         temp_dir = self.temp_dir
+
         class SucceedingAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 # Write a file that would be committed
                 (Path(temp_dir) / "generated.txt").write_text("generated")
-                return type("R", (), {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0},
+                )()
 
         class FailingVerifier:
-            def __init__(self, timeout=300): self.timeout = timeout
+            def __init__(self, timeout=300):
+                self.timeout = timeout
+
             def run_verification(self, commands, cwd="."):
-                return type("VR", (), {"exit_code": 1, "stdout": "", "stderr": "verify fail", "duration": 0.0, "success": False})()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 1,
+                        "stdout": "",
+                        "stderr": "verify fail",
+                        "duration": 0.0,
+                        "success": False,
+                    },
+                )()
+
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(
-                id="t1", title="T1", prompt="echo hi",
-                command=VerificationCommand(command="exit 1"),
-                metadata={"max_attempts": 1}
-            )],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="echo hi",
+                    command=VerificationCommand(command="exit 1"),
+                    metadata={"max_attempts": 1},
+                )
+            ],
             defaults=MissionDefaults(max_attempts=1),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter()
+        )
         driver.verifier = FailingVerifier()
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
         commits = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD"], cwd=self.temp_dir, capture_output=True, text=True
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=self.temp_dir,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         self.assertEqual(int(commits), 1)  # Only initial commit
 
     def test_commit_on_both_success(self):
         """Commit occurs when both execution and verification succeed."""
         temp_dir = self.temp_dir
+
         class SucceedingAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 (Path(temp_dir) / "generated.txt").write_text("generated")
-                return type("R", (), {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0},
+                )()
 
         class SucceedingVerifier:
-            def __init__(self, timeout=300): self.timeout = timeout
+            def __init__(self, timeout=300):
+                self.timeout = timeout
+
             def run_verification(self, commands, cwd="."):
-                return type("VR", (), {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.0, "success": True})()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 0,
+                        "stdout": "ok",
+                        "stderr": "",
+                        "duration": 0.0,
+                        "success": True,
+                    },
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(
-                id="t1", title="T1", prompt="echo hi",
-                command=VerificationCommand(command="echo verify"),
-                metadata={"max_attempts": 1}
-            )],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="echo hi",
+                    command=VerificationCommand(command="echo verify"),
+                    metadata={"max_attempts": 1},
+                )
+            ],
             defaults=MissionDefaults(max_attempts=1),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter()
+        )
         driver.repository = Repository(self.temp_dir)
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
@@ -397,7 +582,10 @@ class TestCommitOnlyAfterVerifyPass(unittest.TestCase):
         driver._complete_task(task)
 
         commits = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD"], cwd=self.temp_dir, capture_output=True, text=True
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=self.temp_dir,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         self.assertEqual(int(commits), 2)  # Initial + one new commit
 
@@ -413,6 +601,7 @@ class TestExecutorSelection(unittest.TestCase):
     def test_build_adapter_shell(self):
         adapter = build_adapter("shell", 300)
         from asc.adapters.shell import ShellAdapter
+
         self.assertIsInstance(adapter, ShellAdapter)
 
     def test_build_adapter_mock(self):
@@ -427,6 +616,7 @@ class TestExecutorSelection(unittest.TestCase):
     def test_build_adapter_unknown_raises(self):
         with self.assertRaises(ValueError):
             build_adapter("nonexistent", 300)
+
     def test_driver_uses_spec_executor_default(self):
         """Driver uses executor from spec.defaults.executor."""
         with patch("shutil.which", return_value="/fake/omp"):
@@ -434,7 +624,8 @@ class TestExecutorSelection(unittest.TestCase):
             try:
                 db_path = str(Path(temp_dir) / "test.db")
                 spec = MissionSpec(
-                    id="m1", goal="G",
+                    id="m1",
+                    goal="G",
                     tasks=[Task(id="t1", title="T1", prompt="hi")],
                     defaults=MissionDefaults(executor="shell"),
                 )
@@ -462,17 +653,31 @@ class TestWorkingDirectoryPropagation(unittest.TestCase):
         class CaptureAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 captured_context["working_directory"] = context.get("working_directory")
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(id="t1", title="T1", prompt="hi", working_directory="/custom/path")],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(id="t1", title="T1", prompt="hi", working_directory="/custom/path")
+            ],
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter()
+        )
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
@@ -485,18 +690,30 @@ class TestWorkingDirectoryPropagation(unittest.TestCase):
         class CaptureAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 captured_context["working_directory"] = context.get("working_directory")
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
+            id="m1",
+            goal="G",
             tasks=[Task(id="t1", title="T1", prompt="hi")],
             defaults=MissionDefaults(working_directory="/spec/default"),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter()
+        )
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
@@ -507,27 +724,56 @@ class TestWorkingDirectoryPropagation(unittest.TestCase):
         verify_cwds = []
 
         class SucceedingAdapter:
-            def can_execute(self, task): return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+            def can_execute(self, task):
+                return True
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         class CaptureVerifier:
-            def __init__(self, timeout=300): self.timeout = timeout
+            def __init__(self, timeout=300):
+                self.timeout = timeout
+
             def run_verification(self, commands, cwd="."):
                 verify_cwds.append(cwd)
-                return type("VR", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0, "success": True})()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 0,
+                        "stdout": "",
+                        "stderr": "",
+                        "duration": 0.0,
+                        "success": True,
+                    },
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(
-                id="t1", title="T1", prompt="hi",
-                command=VerificationCommand(command="echo verify"),
-                working_directory="/task/workdir",
-            )],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="hi",
+                    command=VerificationCommand(command="echo verify"),
+                    working_directory="/task/workdir",
+                )
+            ],
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter()
+        )
         driver.verifier = CaptureVerifier()
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
@@ -541,19 +787,38 @@ class TestWorkingDirectoryPropagation(unittest.TestCase):
         class CaptureAdapter:
             def can_execute(self, task):
                 return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 # OMPAdapter builds cmd as list, passes to subprocess without shell=True
                 # This test verifies the driver passes working_directory correctly
                 captured_cmd["cwd"] = context.get("working_directory")
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(id="t1", title="T1", prompt="hi", working_directory=r"C:\Users\Name\My Project")],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="hi",
+                    working_directory=r"C:\Users\Name\My Project",
+                )
+            ],
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=CaptureAdapter()
+        )
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
@@ -567,11 +832,23 @@ class TestGitSafety(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.db_path = Path(self.temp_dir) / "test.db"
         subprocess.run(["git", "init"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@test"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.temp_dir, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test"],
+            cwd=self.temp_dir,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=self.temp_dir,
+            capture_output=True,
+        )
         (Path(self.temp_dir) / "README.md").write_text("# Test\n")
-        subprocess.run(["git", "add", "README.md"], cwd=self.temp_dir, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=self.temp_dir, capture_output=True)
+        subprocess.run(
+            ["git", "add", "README.md"], cwd=self.temp_dir, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=self.temp_dir, capture_output=True
+        )
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -579,25 +856,58 @@ class TestGitSafety(unittest.TestCase):
     def test_no_push_no_merge_no_tag_no_release(self):
         """Driver commits but never pushes, merges, tags, or releases."""
         temp_dir = self.temp_dir
+
         class SucceedingAdapter:
-            def can_execute(self, task): return True
-            def prepare(self, context): pass
-            def cleanup(self): pass
+            def can_execute(self, task):
+                return True
+
+            def prepare(self, context):
+                pass
+
+            def cleanup(self):
+                pass
+
             def execute(self, task, context):
                 (Path(temp_dir) / "gen.txt").write_text("x")
-                return type("R", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0})()
+                return type(
+                    "R",
+                    (),
+                    {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0},
+                )()
 
         class SucceedingVerifier:
-            def __init__(self, timeout=300): self.timeout = timeout
+            def __init__(self, timeout=300):
+                self.timeout = timeout
+
             def run_verification(self, commands, cwd="."):
-                return type("VR", (), {"exit_code": 0, "stdout": "", "stderr": "", "duration": 0.0, "success": True})()
+                return type(
+                    "VR",
+                    (),
+                    {
+                        "exit_code": 0,
+                        "stdout": "",
+                        "stderr": "",
+                        "duration": 0.0,
+                        "success": True,
+                    },
+                )()
 
         spec = MissionSpec(
-            id="m1", goal="G",
-            tasks=[Task(id="t1", title="T1", prompt="hi", command=VerificationCommand(command="echo v"))],
+            id="m1",
+            goal="G",
+            tasks=[
+                Task(
+                    id="t1",
+                    title="T1",
+                    prompt="hi",
+                    command=VerificationCommand(command="echo v"),
+                )
+            ],
             defaults=MissionDefaults(max_attempts=1),
         )
-        driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
+        driver = MissionDriver(
+            spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter()
+        )
         driver.verifier = SucceedingVerifier()
         driver.repository = Repository(self.temp_dir)
         task = driver.state.get_tasks("m1")[0]
@@ -606,7 +916,10 @@ class TestGitSafety(unittest.TestCase):
 
         # Only one new commit
         commits = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD"], cwd=self.temp_dir, capture_output=True, text=True
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=self.temp_dir,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         self.assertEqual(int(commits), 2)
 
@@ -632,7 +945,10 @@ class TestOMPTimeoutHandling(unittest.TestCase):
             adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp", timeout=1))
             task = Task(id="t1", title="T1", prompt="sleep 10")
 
-            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["omp"], timeout=1)):
+            with patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd=["omp"], timeout=1),
+            ):
                 result = adapter.execute(task, {})
 
             self.assertEqual(result.exit_code, 124)
