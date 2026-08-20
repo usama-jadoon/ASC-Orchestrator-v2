@@ -87,4 +87,12 @@ jobs:
           pip install pyyaml
           pip install -e .
       - name: Verify release
-        run: python scripts/release_verifier.py
+        run: |
+          python -c "
+          from asc.release import verify, render
+          report = verify('.')
+          for line in render(report):
+              print(line)
+          if not report.passed:
+              raise SystemExit('Release gate FAILED')
+          "
