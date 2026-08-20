@@ -132,12 +132,16 @@ def _gate_runtime_modules() -> ReleaseGate:
             missing.append(f"{module} ({error})")
     if missing:
         return ReleaseGate("runtime_modules", False, "; ".join(missing))
-    return ReleaseGate("runtime_modules", True, f"{len(RUNTIME_MODULES)} modules import")
+    return ReleaseGate(
+        "runtime_modules", True, f"{len(RUNTIME_MODULES)} modules import"
+    )
 
 
 def _gate_tests_present(repository_root: Path) -> ReleaseGate:
     tests_dir = repository_root / "tests"
-    missing = [name for name in REQUIRED_TEST_SUITES if not (tests_dir / name).is_file()]
+    missing = [
+        name for name in REQUIRED_TEST_SUITES if not (tests_dir / name).is_file()
+    ]
     if missing:
         return ReleaseGate("test_suites", False, f"missing {', '.join(missing)}")
     return ReleaseGate("test_suites", True, "Universal ASC tests present")
@@ -156,7 +160,10 @@ def verify(repository_root: str | Path = ".") -> ReleaseReport:
 
 
 def render(report: ReleaseReport) -> Iterable[str]:
-    lines = [f"release={'PASS' if report.passed else 'FAIL'}", f"version={report.version}"]
+    lines = [
+        f"release={'PASS' if report.passed else 'FAIL'}",
+        f"version={report.version}",
+    ]
     for gate in report.gates:
         lines.append(f"gate.{gate.name}={'PASS' if gate.passed else 'FAIL'}")
         if not gate.passed and gate.detail:
