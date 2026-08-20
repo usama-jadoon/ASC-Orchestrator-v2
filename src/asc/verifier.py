@@ -4,7 +4,6 @@ Executes verification commands independently with exit code capture.
 """
 
 import subprocess
-import sys
 import time
 from typing import List, Optional, Union
 
@@ -36,7 +35,8 @@ class Verifier:
             cmd_timeout = cmd.timeout if cmd.timeout is not None else timeout
 
         # On Windows, use shell=True for built-ins like 'exit'
-        shell = sys.platform == "win32"
+        # Use shell=True for string commands to ensure cross-platform compatibility (e.g., 'exit', 'echo')
+        shell = True
         try:
             start_time = time.time()
             result = subprocess.run(

@@ -72,24 +72,19 @@ jobs:
       - name: Validate docs
         run: python scripts/validate_docs.py
 
-  release-gate:
+  release:
     name: Release Gate
     runs-on: ubuntu-latest
     needs: [lint, type-check, test, docs]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Release verification
-        env:
-          PYTHONPATH: src
+      - name: Install dependencies
         run: |
-          python -c "
-          from asc_orchestrator.release import verify, render
-          report = verify('.')
-          for line in render(report):
-              print(line)
-          if not report.passed:
-              raise SystemExit('Release gate FAILED')
-          "
+          pip install pyyaml
+          pip install -e .
+      - name: Verify release
+        run: python scripts/release_verifier.py
