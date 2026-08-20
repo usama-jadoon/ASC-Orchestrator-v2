@@ -7,15 +7,21 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
-from .models import Task, TaskStatus, AttemptRecord, MissionSpec, VerificationCommand, Mission
+from .models import (
+    Mission,
+    MissionSpec,
+    Task,
+    TaskStatus,
+    VerificationCommand,
+)
 
 
 class State:
     """Handles database operations for mission and task tracking."""
 
-    def __init__(self, db_path: str = '.asc/asc.db'):
+    def __init__(self, db_path: str = ".asc/asc.db"):
         """Initialize database connection."""
         self.db_path = Path(db_path)
         self._conn = None
@@ -32,16 +38,16 @@ class State:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS missions (
                     id TEXT PRIMARY KEY,
                     goal TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
-                )''')
+                )""")
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
                     mission_id TEXT NOT NULL,
@@ -57,9 +63,9 @@ class State:
                     exit_code INTEGER,
                     updated_at REAL NOT NULL,
                     FOREIGN KEY(mission_id) REFERENCES missions(id)
-                )''')
+                )""")
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS attempts (
                     id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
@@ -70,9 +76,9 @@ class State:
                     stderr TEXT,
                     timestamp REAL NOT NULL,
                     FOREIGN KEY(task_id) REFERENCES tasks(id)
-                )''')
+                )""")
 
-            cursor.execute('''
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY,
                     mission_id TEXT,
@@ -80,7 +86,7 @@ class State:
                     event_type TEXT NOT NULL,
                     payload_json TEXT,
                     timestamp REAL NOT NULL
-                )''')
+                )""")
 
             conn.commit()
 
@@ -121,17 +127,17 @@ class State:
 
     def save_mission(self, spec: Any) -> None:
         """Save a complete mission spec including all its tasks."""
-        mission_id = spec.id if hasattr(spec, 'id') else spec.get('id')
-        goal = spec.goal if hasattr(spec, 'goal') else spec.get('goal', '')
+        mission_id = spec.id if hasattr(spec, "id") else spec.get("id")
+        goal = spec.goal if hasattr(spec, "goal") else spec.get("goal", "")
         with self._get_connection() as conn:
             cursor = conn.cursor()
             now = time.time()
             cursor.execute(
                 "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (mission_id, goal, 'PENDING', now, now)
+                (mission_id, goal, "PENDING", now, now),
             )
             conn.commit()
-        tasks = spec.tasks if hasattr(spec, 'tasks') else spec.get('tasks', [])
+        tasks = spec.tasks if hasattr(spec, "tasks") else spec.get("tasks", [])
         for task in tasks:
             self.save_task(task, mission_id)
 
@@ -155,11 +161,13 @@ class State:
             if exit_code is not None:
                 cursor.execute(
                     "UPDATE tasks SET status = ?, exit_code = ?, updated_at = ? WHERE id = ?",
-                    (task.status.value, exit_code, updated_at, task.id))
+                    (task.status.value, exit_code, updated_at, task.id),
+                )
             else:
                 cursor.execute(
                     "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
-                    (task.status.value, updated_at, task.id))
+                    (task.status.value, updated_at, task.id),
+                )
             conn.commit()
             return cursor.rowcount > 0
 
@@ -169,26 +177,29 @@ class State:
             cursor = conn.cursor()
             depends_json = json.dumps(task.depends_on)
             command_str = task.command.command if task.command else None
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO tasks
                 (id, mission_id, title, status, depends_on, prompt, command,
                  attempt_count, commit_sha, started_at, completed_at, exit_code, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                task.id,
-                mission_id,
-                task.title,
-                task.status.value,
-                depends_json,
-                task.prompt,
-                command_str,
-                task.metadata.get('attempt_count', 0),
-                task.commit_sha,
-                task.started_at,
-                task.completed_at,
-                None,
-                time.time(),
-            ))
+            """,
+                (
+                    task.id,
+                    mission_id,
+                    task.title,
+                    task.status.value,
+                    depends_json,
+                    task.prompt,
+                    command_str,
+                    task.metadata.get("attempt_count", 0),
+                    task.commit_sha,
+                    task.started_at,
+                    task.completed_at,
+                    None,
+                    time.time(),
+                ),
+            )
             conn.commit()
 
     def record_attempt(self, attempt_data: Any) -> None:
@@ -197,18 +208,18 @@ class State:
             cursor = conn.cursor()
             # Handle both AttemptRecord objects and dicts
             if isinstance(attempt_data, dict):
-                attempt_id = attempt_data.get('id', f"attempt_{time.time()}")
-                task_id = attempt_data.get('task_id')
-                attempt_number = attempt_data.get('attempt_number', 1)
-                status = attempt_data.get('status', TaskStatus.PENDING)
+                attempt_id = attempt_data.get("id", f"attempt_{time.time()}")
+                task_id = attempt_data.get("task_id")
+                attempt_number = attempt_data.get("attempt_number", 1)
+                status = attempt_data.get("status", TaskStatus.PENDING)
                 if isinstance(status, TaskStatus):
                     status_value = status.value
                 else:
                     status_value = str(status)
-                exit_code = attempt_data.get('exit_code')
-                stdout = attempt_data.get('stdout', '')
-                stderr = attempt_data.get('stderr', '')
-                timestamp = attempt_data.get('timestamp', time.time())
+                exit_code = attempt_data.get("exit_code")
+                stdout = attempt_data.get("stdout", "")
+                stderr = attempt_data.get("stderr", "")
+                timestamp = attempt_data.get("timestamp", time.time())
             else:
                 attempt_id = attempt_data.id
                 task_id = attempt_data.task_id
@@ -219,20 +230,23 @@ class State:
                 stderr = attempt_data.stderr
                 timestamp = attempt_data.timestamp
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO attempts
                 (id, task_id, attempt_number, status, exit_code, stdout, stderr, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                attempt_id,
-                task_id,
-                attempt_number,
-                status_value,
-                exit_code,
-                stdout,
-                stderr,
-                timestamp,
-            ))
+            """,
+                (
+                    attempt_id,
+                    task_id,
+                    attempt_number,
+                    status_value,
+                    exit_code,
+                    stdout,
+                    stderr,
+                    timestamp,
+                ),
+            )
             conn.commit()
 
     def get_attempts(self, task_id: str) -> List[Dict[str, Any]]:
@@ -247,19 +261,22 @@ class State:
         """Record mission/task event."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            event_id = event_data.get('id', f"evt_{time.time()}")
-            cursor.execute('''
+            event_id = event_data.get("id", f"evt_{time.time()}")
+            cursor.execute(
+                """
                 INSERT INTO events
                 (id, mission_id, task_id, event_type, payload_json, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                event_id,
-                event_data.get('mission_id'),
-                event_data.get('task_id'),
-                event_data.get('event_type', 'UNKNOWN'),
-                json.dumps(event_data.get('payload', {})),
-                event_data.get('timestamp', time.time()),
-            ))
+            """,
+                (
+                    event_id,
+                    event_data.get("mission_id"),
+                    event_data.get("task_id"),
+                    event_data.get("event_type", "UNKNOWN"),
+                    json.dumps(event_data.get("payload", {})),
+                    event_data.get("timestamp", time.time()),
+                ),
+            )
             conn.commit()
 
     def get_events(self, mission_id: str) -> List[Dict[str, Any]]:
@@ -273,41 +290,21 @@ class State:
     def _row_to_task(self, row) -> Task:
         """Convert a database row to a Task object."""
         if row is None:
-            return Task(id="unknown", title="unknown", prompt="", status=TaskStatus.PENDING)
-        depends_on = json.loads(row['depends_on']) if row['depends_on'] else []
+            return Task(
+                id="unknown", title="unknown", prompt="", status=TaskStatus.PENDING
+            )
+        depends_on = json.loads(row["depends_on"]) if row["depends_on"] else []
         command = None
-        if row['command']:
-            command = VerificationCommand(command=row['command'])
+        if row["command"]:
+            command = VerificationCommand(command=row["command"])
         return Task(
-            id=row['id'],
-            title=row['title'],
-            prompt=row['prompt'] if row['prompt'] else '',
-            status=TaskStatus(row['status']),
+            id=row["id"],
+            title=row["title"],
+            prompt=row["prompt"] if row["prompt"] else "",
+            status=TaskStatus(row["status"]),
             depends_on=depends_on,
             command=command,
-            started_at=row['started_at'],
-            completed_at=row['completed_at'],
-            commit_sha=row['commit_sha'],
-        )
-
-
-class Mission:
-    """Mission model for persistence layer."""
-
-    def __init__(self, id: str, goal: str, status: str, created_at: float, updated_at: float):
-        self.id = id
-        self.goal = goal
-        self.status = status
-        self.created_at = created_at
-        self.updated_at = updated_at
-
-    @classmethod
-    def from_row(cls, row) -> 'Mission':
-        """Create Mission from database row."""
-        return cls(
-            id=row['id'],
-            goal=row['goal'],
-            status=row['status'],
-            created_at=row['created_at'],
-            updated_at=row['updated_at'],
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            commit_sha=row["commit_sha"],
         )

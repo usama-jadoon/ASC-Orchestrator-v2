@@ -4,23 +4,21 @@ Provides command-line interface for mission management.
 """
 
 import argparse
-import os
 import sys
-import time
 from pathlib import Path
 from typing import Optional
 
+from .dag import evaluate_mission, is_task_ready
+from .driver import MissionDriver
+from .models import SchedulerState, TaskStatus
 from .spec import MissionSpecParser
 from .state import State
-from .driver import MissionDriver
-from .dag import evaluate_mission, is_task_ready
-from .models import TaskStatus, SchedulerState
 
 
 class CLI:
     """Command-line interface for Universal ASC v2.0.0."""
 
-    def __init__(self, db_path: str = '.asc/asc.db'):
+    def __init__(self, db_path: str = ".asc/asc.db"):
         self.state = State(db_path)
         self.parser = argparse.ArgumentParser(
             prog="asc",
@@ -59,7 +57,9 @@ class CLI:
             help="Enable verbose output",
         )
 
-    def _get_target_file(self, args: argparse.Namespace, default: str = "mission.yaml") -> str:
+    def _get_target_file(
+        self, args: argparse.Namespace, default: str = "mission.yaml"
+    ) -> str:
         """Resolve file path from positional argument or --file flag."""
         return args.file_opt or args.file or default
 
@@ -107,7 +107,9 @@ class CLI:
         try:
             spec = MissionSpecParser.from_file(path)
             self.state.save_mission(spec)
-            print(f"Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database.")
+            print(
+                f"Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database."
+            )
         except Exception as e:
             print(f"Error initializing mission: {e}")
             sys.exit(1)
@@ -121,7 +123,9 @@ class CLI:
 
         try:
             spec = MissionSpecParser.from_file(path)
-            print(f"SUCCESS: Mission '{spec.id}' validation passed! ({len(spec.tasks)} tasks, 0 cycle/dependency errors)")
+            print(
+                f"SUCCESS: Mission '{spec.id}' validation passed! ({len(spec.tasks)} tasks, 0 cycle/dependency errors)"
+            )
         except Exception as e:
             print(f"Validation ERROR: {e}")
             sys.exit(1)
@@ -140,7 +144,9 @@ class CLI:
             driver = MissionDriver(spec=spec, db_path=str(self.state.db_path))
             result = driver.run(spec.id)
             print(f"\nMission Completed: {result.get('final_status')}")
-            print(f"Tasks Completed: {result.get('tasks_completed')}, Failed: {result.get('tasks_failed')}")
+            print(
+                f"Tasks Completed: {result.get('tasks_completed')}, Failed: {result.get('tasks_failed')}"
+            )
         except Exception as e:
             print(f"Error running mission: {e}")
             sys.exit(1)
@@ -149,7 +155,9 @@ class CLI:
         """Display human-readable mission and task status."""
         target_id = mission_id or self.state.get_last_mission_id()
         if not target_id:
-            print("No missions found in database. Run 'asc init' or 'asc run mission.yaml' to start a mission.")
+            print(
+                "No missions found in database. Run 'asc init' or 'asc run mission.yaml' to start a mission."
+            )
             return
 
         mission = self.state.get_mission(target_id)
@@ -170,11 +178,13 @@ class CLI:
             TaskStatus.CANCELLED: "[CANCELLED]",
         }
 
-        print(f"\n=======================================================")
+        print("\n=======================================================")
         print(f" Mission: {mission.id}")
         print(f" Goal:    {mission.goal}")
-        print(f" State:   {outcome.state.value if hasattr(outcome.state, 'value') else outcome.state}")
-        print(f"=======================================================")
+        print(
+            f" State:   {outcome.state.value if hasattr(outcome.state, 'value') else outcome.state}"
+        )
+        print("=======================================================")
         print(f"Tasks ({len(tasks)} total):")
 
         completed_count = 0
@@ -182,15 +192,22 @@ class CLI:
             is_ready = is_task_ready(t, task_dict)
             ready_marker = " (RUNNABLE NEXT)" if is_ready else ""
             icon = status_icons.get(t.status, "[?]")
-            deps_str = f" [depends_on: {', '.join(t.depends_on)}]" if t.depends_on else ""
+            deps_str = (
+                f" [depends_on: {', '.join(t.depends_on)}]" if t.depends_on else ""
+            )
             print(f"  {icon} {t.id}: {t.title}{deps_str}{ready_marker}")
             if t.status == TaskStatus.COMPLETED:
                 completed_count += 1
 
         print(f"\nSummary: {completed_count}/{len(tasks)} completed.")
         if outcome.state == SchedulerState.BLOCKED:
-            print(f"Blocked Reason: {outcome.details.get('reason', 'Dependencies incomplete')}")
-        print(f"=======================================================\n")
+            blocked_info = (
+                f"Blocked Tasks: {', '.join(outcome.blocked_ids)}"
+                if outcome.blocked_ids
+                else "Dependencies incomplete"
+            )
+            print(f"Blocked Reason: {blocked_info}")
+        print("=======================================================\n")
 
     def _resume_mission(self, mission_id: Optional[str] = None):
         """Resume an interrupted mission."""
@@ -208,12 +225,16 @@ class CLI:
         """Diagnose environment, git, and database health."""
         print("Universal ASC v2 Doctor - System Diagnostics:")
         print(f"  [+] Python version: {sys.version.split()[0]} (Supported >= 3.11)")
-        print(f"  [+] Database: {self.state.db_path} ({'Connected' if self.state._conn is None else 'Active'})")
-        
+        print(
+            f"  [+] Database: {self.state.db_path} ({'Connected' if self.state._conn is None else 'Active'})"
+        )
+
         # Git check
         is_git = Path(".git").exists()
-        print(f"  [{'+' if is_git else '!'}] Git Repository: {'Detected' if is_git else 'Not a git repo'}")
-        
+        print(
+            f"  [{'+' if is_git else '!'}] Git Repository: {'Detected' if is_git else 'Not a git repo'}"
+        )
+
         missions = self.state.get_all_missions()
         print(f"  [+] Recorded Missions in State: {len(missions)}")
         print("System health OK.\n")

@@ -3,13 +3,14 @@
 Core data structures for the Universal ASC orchestrator.
 """
 
-from enum import Enum
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
 class TaskStatus(Enum):
     """Task execution status."""
+
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
@@ -20,6 +21,7 @@ class TaskStatus(Enum):
 
 class SchedulerState(Enum):
     """Mission scheduler state."""
+
     RUNNABLE = "RUNNABLE"
     COMPLETE = "COMPLETE"
     BLOCKED = "BLOCKED"
@@ -28,13 +30,16 @@ class SchedulerState(Enum):
 @dataclass
 class VerificationCommand:
     """A verification command to execute for task completion."""
+
     command: str
     cwd: Optional[str] = None
+    timeout: Optional[int] = None
 
 
 @dataclass
 class VerificationResult:
     """Result of verification command execution."""
+
     command: VerificationCommand
     exit_code: int
     stdout: str = ""
@@ -49,6 +54,7 @@ class VerificationResult:
 @dataclass
 class Task:
     """A task in a mission specification."""
+
     id: str
     title: str
     prompt: str
@@ -64,6 +70,7 @@ class Task:
 @dataclass
 class MissionDefaults:
     """Default settings for mission execution."""
+
     max_attempts: int = 3
     verification_timeout: int = 300
 
@@ -71,6 +78,7 @@ class MissionDefaults:
 @dataclass
 class MissionSpec:
     """Mission specification parsed from YAML/JSON."""
+
     id: str
     goal: str
     tasks: List[Task]
@@ -80,6 +88,7 @@ class MissionSpec:
 @dataclass
 class Mission:
     """Mission record for persistence layer."""
+
     id: str
     goal: str
     status: str
@@ -87,20 +96,21 @@ class Mission:
     updated_at: float
 
     @classmethod
-    def from_row(cls, row) -> 'Mission':
+    def from_row(cls, row) -> "Mission":
         """Create Mission from database row."""
         return cls(
-            id=row['id'],
-            goal=row['goal'],
-            status=row['status'],
-            created_at=row['created_at'],
-            updated_at=row['updated_at'],
+            id=row["id"],
+            goal=row["goal"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
 
 @dataclass
 class AttemptRecord:
     """Record of a task execution attempt."""
+
     id: str
     task_id: str
     attempt_number: int
@@ -114,6 +124,7 @@ class AttemptRecord:
 @dataclass
 class MissionStateRecord:
     """Record of mission state for persistence."""
+
     mission_id: str
     state: SchedulerState
     runnable_tasks: List[str] = field(default_factory=list)
@@ -124,5 +135,6 @@ class MissionStateRecord:
 @dataclass
 class AgentResult:
     """Result of agent execution."""
+
     output: str
     exit_code: int = 0

@@ -1,9 +1,9 @@
 from ..models import Task
-from .base import AgentAdapter, AgentResult
 
 
 class MockResult:
     """Mock verification result."""
+
     def __init__(self, exit_code: int = 0, output: str = ""):
         self.exit_code = exit_code
         self.output = output
@@ -11,6 +11,7 @@ class MockResult:
 
 class MockAdapter:
     """Concrete mock adapter for testing."""
+
     def can_execute(self) -> bool:
         """Check if command can execute."""
         return True

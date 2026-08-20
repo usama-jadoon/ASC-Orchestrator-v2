@@ -4,9 +4,11 @@ Parses YAML or JSON mission specifications and validates them.
 """
 
 import json
-import yaml
 from pathlib import Path
-from typing import Union, Dict, List
+from typing import Dict, List, Union
+
+import yaml  # type: ignore[import-untyped]
+
 from .models import MissionSpec, Task, VerificationCommand
 
 
@@ -17,7 +19,7 @@ class MissionSpecParser:
     def parse(content: str) -> MissionSpec:
         """Parse mission spec from string (auto-detects YAML/JSON)."""
         content = content.strip()
-        if content.startswith('{') or content.startswith('['):
+        if content.startswith("{") or content.startswith("["):
             return MissionSpecParser.from_json(content)
         else:
             return MissionSpecParser.from_yaml(content)
@@ -37,21 +39,21 @@ class MissionSpecParser:
     @staticmethod
     def from_file(path: Union[str, Path]) -> MissionSpec:
         """Parse mission spec from file (YAML or JSON)."""
-        content = Path(path).read_text(encoding='utf-8')
+        content = Path(path).read_text(encoding="utf-8")
         return MissionSpecParser.parse(content)
 
     @staticmethod
     def _parse_dict(data: Dict) -> MissionSpec:
         """Parse mission spec from dictionary."""
         # Validate required fields
-        if 'id' not in data:
+        if "id" not in data:
             raise ValueError("Mission spec missing required field: 'id'")
-        if 'goal' not in data:
+        if "goal" not in data:
             raise ValueError("Mission spec missing required field: 'goal'")
-        if 'tasks' not in data:
+        if "tasks" not in data:
             raise ValueError("Mission spec missing required field: 'tasks'")
 
-        task_dicts = data['tasks']
+        task_dicts = data["tasks"]
         if not isinstance(task_dicts, list):
             raise ValueError("'tasks' must be a list")
 
@@ -63,34 +65,42 @@ class MissionSpecParser:
                 raise ValueError(f"Task at index {i} must be a dictionary")
 
             # Validate required fields
-            if 'id' not in task_data:
+            if "id" not in task_data:
                 raise ValueError(f"Task at index {i} missing required field: 'id'")
-            if 'title' not in task_data:
-                raise ValueError(f"Task '{task_data.get('id', f'at index {i}')}' missing required field: 'title'")
-            if 'prompt' not in task_data:
-                raise ValueError(f"Task '{task_data.get('id', f'at index {i}')}' missing required field: 'prompt'")
+            if "title" not in task_data:
+                raise ValueError(
+                    f"Task '{task_data.get('id', f'at index {i}')}' missing required field: 'title'"
+                )
+            if "prompt" not in task_data:
+                raise ValueError(
+                    f"Task '{task_data.get('id', f'at index {i}')}' missing required field: 'prompt'"
+                )
 
-            task_id = task_data['id']
+            task_id = task_data["id"]
             if task_id in task_ids:
                 raise ValueError("Duplicate task IDs")
             task_ids.add(task_id)
 
             # Process dependencies
-            depends_on = task_data.get('depends_on', [])
+            depends_on = task_data.get("depends_on", [])
             if not isinstance(depends_on, list):
                 raise ValueError(f"Task '{task_id}' depends_on must be a list")
 
             # Validate self-dependency
             if task_id in depends_on:
-                raise ValueError(f"Task '{task_id}' cannot depend on itself: cyclic dependencies detected")
+                raise ValueError(
+                    f"Task '{task_id}' cannot depend on itself: cyclic dependencies detected"
+                )
 
             # Validate all dependencies exist
             for dep_id in depends_on:
                 if dep_id not in task_ids:  # Check if dependency exists
-                    raise ValueError(f"Task validation failed: missing dependency '{dep_id}'")
+                    raise ValueError(
+                        f"Task validation failed: missing dependency '{dep_id}'"
+                    )
 
             # Build task object
-            command_data = task_data.get('command')
+            command_data = task_data.get("command")
             command = None
             if command_data:
                 if isinstance(command_data, str):
@@ -98,19 +108,21 @@ class MissionSpecParser:
                 elif isinstance(command_data, dict):
                     command = VerificationCommand(**command_data)
 
-            tasks.append(Task(
-                id=task_id,
-                title=task_data['title'],
-                prompt=task_data['prompt'],
-                depends_on=depends_on,
-                command=command
-            ))
+            tasks.append(
+                Task(
+                    id=task_id,
+                    title=task_data["title"],
+                    prompt=task_data["prompt"],
+                    depends_on=depends_on,
+                    command=command,
+                )
+            )
 
         return MissionSpec(
-            id=data['id'],
-            goal=data['goal'],
+            id=data["id"],
+            goal=data["goal"],
             tasks=tasks,
-            defaults=data.get('defaults', {})
+            defaults=data.get("defaults", {}),
         )
 
     @staticmethod
@@ -128,8 +140,8 @@ class MissionSpecParser:
     def _check_cycles(tasks: List[Task]) -> bool:
         """Check for cycles in task dependencies using Kahn's algorithm."""
         # Build adjacency list and in-degree count
-        adj = {task.id: [] for task in tasks}
-        in_degree = {task.id: 0 for task in tasks}
+        adj: Dict[str, List[str]] = {task.id: [] for task in tasks}
+        in_degree: Dict[str, int] = {task.id: 0 for task in tasks}
 
         for task in tasks:
             for dep_id in task.depends_on:

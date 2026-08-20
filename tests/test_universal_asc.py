@@ -4,19 +4,19 @@ import os
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 
-from asc.models import (
-    MissionSpec, Task, TaskStatus, SchedulerState,
-    VerificationCommand, VerificationResult, Mission
-)
-from asc.spec import MissionSpecParser
-from asc.dag import evaluate_mission, is_task_ready, get_runnable_tasks
-from asc.state import State
-from asc.verifier import Verifier
 from asc.adapters.mock import MockAdapter
 from asc.adapters.shell import ShellAdapter
-from asc.adapters.base import ActionFailed
+from asc.dag import evaluate_mission, get_runnable_tasks, is_task_ready
+from asc.models import (
+    MissionSpec,
+    SchedulerState,
+    Task,
+    TaskStatus,
+)
+from asc.spec import MissionSpecParser
+from asc.state import State
+from asc.verifier import Verifier
 
 
 class TestMissionSpecParser(unittest.TestCase):
@@ -116,22 +116,30 @@ class TestDAGEvaluation(unittest.TestCase):
 
     def test_is_task_ready_with_completed_dependency(self):
         """Test task with completed dependency is ready."""
-        task_a = Task(id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED)
+        task_a = Task(
+            id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED
+        )
         task_b = Task(id="task-b", title="Task B", prompt="Test", depends_on=["task-a"])
         self.assertTrue(is_task_ready(task_b, [task_a, task_b]))
 
     def test_is_task_ready_with_pending_dependency(self):
         """Test task with pending dependency is not ready."""
-        task_a = Task(id="task-a", title="Task A", prompt="Test", status=TaskStatus.PENDING)
+        task_a = Task(
+            id="task-a", title="Task A", prompt="Test", status=TaskStatus.PENDING
+        )
         task_b = Task(id="task-b", title="Task B", prompt="Test", depends_on=["task-a"])
         self.assertFalse(is_task_ready(task_b, [task_a, task_b]))
 
     def test_get_runnable_tasks(self):
         """Test getting runnable tasks."""
-        task_a = Task(id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED)
+        task_a = Task(
+            id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED
+        )
         task_b = Task(id="task-b", title="Task B", prompt="Test", depends_on=["task-a"])
         task_c = Task(id="task-c", title="Task C", prompt="Test", depends_on=["task-a"])
-        task_d = Task(id="task-d", title="Task D", prompt="Test", depends_on=["task-b", "task-c"])
+        task_d = Task(
+            id="task-d", title="Task D", prompt="Test", depends_on=["task-b", "task-c"]
+        )
 
         runnable = get_runnable_tasks([task_a, task_b, task_c, task_d])
         runnable_ids = {t.id for t in runnable}
@@ -139,14 +147,20 @@ class TestDAGEvaluation(unittest.TestCase):
 
     def test_evaluate_mission_complete(self):
         """Test mission evaluation when all tasks complete."""
-        task_a = Task(id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED)
-        task_b = Task(id="task-b", title="Task B", prompt="Test", status=TaskStatus.COMPLETED)
+        task_a = Task(
+            id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED
+        )
+        task_b = Task(
+            id="task-b", title="Task B", prompt="Test", status=TaskStatus.COMPLETED
+        )
         result = evaluate_mission("mission-1", [task_a, task_b])
         self.assertEqual(result.state, SchedulerState.COMPLETE)
 
     def test_evaluate_mission_runnable(self):
         """Test mission evaluation when tasks are runnable."""
-        task_a = Task(id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED)
+        task_a = Task(
+            id="task-a", title="Task A", prompt="Test", status=TaskStatus.COMPLETED
+        )
         task_b = Task(id="task-b", title="Task B", prompt="Test", depends_on=["task-a"])
         result = evaluate_mission("mission-1", [task_a, task_b])
         self.assertEqual(result.state, SchedulerState.RUNNABLE)
@@ -175,6 +189,7 @@ class TestSQLitePersistence(unittest.TestCase):
         except Exception:
             pass
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_init_db(self):
@@ -189,8 +204,8 @@ class TestSQLitePersistence(unittest.TestCase):
             goal="Test mission",
             tasks=[
                 Task(id="task-1", title="Task 1", prompt="Test task"),
-                Task(id="task-2", title="Task 2", prompt="Another task")
-            ]
+                Task(id="task-2", title="Task 2", prompt="Another task"),
+            ],
         )
         self.state.create_mission(mission_spec)
 
@@ -211,7 +226,7 @@ class TestSQLitePersistence(unittest.TestCase):
             "stdout": "Success output",
             "stderr": "",
             "timestamp": 1234567890.0,
-            "id": "attempt-1"
+            "id": "attempt-1",
         }
         self.state.record_attempt(attempt)
 
@@ -242,7 +257,7 @@ class TestSQLitePersistence(unittest.TestCase):
             "event_type": "TASK_STARTED",
             "payload": {"test": "data"},
             "timestamp": 1234567890.0,
-            "id": "event-1"
+            "id": "event-1",
         }
         self.state.record_event(event)
 
@@ -270,7 +285,9 @@ class TestVerifier(unittest.TestCase):
     def test_run_verification_timeout(self):
         """Test verification command timeout."""
         verifier = Verifier(timeout=1)
-        result = verifier.run_verification([sys.executable + ' -c "import time; time.sleep(10)"'], cwd=".")
+        result = verifier.run_verification(
+            [sys.executable + ' -c "import time; time.sleep(10)"'], cwd="."
+        )
         self.assertEqual(result.exit_code, 124)
 
 
@@ -284,6 +301,7 @@ class TestEndToEndMission(unittest.TestCase):
     def tearDown(self):
         """Clean up temporary directory."""
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_complete_mission_execution(self):
@@ -293,12 +311,26 @@ class TestEndToEndMission(unittest.TestCase):
             goal="Test complete mission",
             tasks=[
                 Task(id="task-1", title="Task 1", prompt="Test task 1"),
-                Task(id="task-2", title="Task 2", prompt="Test task 2", depends_on=["task-1"])
-            ]
+                Task(
+                    id="task-2",
+                    title="Task 2",
+                    prompt="Test task 2",
+                    depends_on=["task-1"],
+                ),
+            ],
         )
+        self.assertEqual(len(spec.tasks), 2)
         # Just verify spec parsing and DAG evaluation work
-        task_a = Task(id="task-1", title="Task 1", prompt="Test", status=TaskStatus.COMPLETED)
-        task_b = Task(id="task-2", title="Task 2", prompt="Test", depends_on=["task-1"], status=TaskStatus.PENDING)
+        task_a = Task(
+            id="task-1", title="Task 1", prompt="Test", status=TaskStatus.COMPLETED
+        )
+        task_b = Task(
+            id="task-2",
+            title="Task 2",
+            prompt="Test",
+            depends_on=["task-1"],
+            status=TaskStatus.PENDING,
+        )
         result = evaluate_mission("mission-1", [task_a, task_b])
         self.assertEqual(result.state, SchedulerState.RUNNABLE)
 
@@ -309,13 +341,14 @@ class TestUtilityFunctions(unittest.TestCase):
     def test_parse_json_spec(self):
         """Test parsing JSON mission spec."""
         import json
-        spec_json = json.dumps({
-            "id": "mission-1",
-            "goal": "Test mission",
-            "tasks": [
-                {"id": "task-1", "title": "Task 1", "prompt": "Test task"}
-            ]
-        })
+
+        spec_json = json.dumps(
+            {
+                "id": "mission-1",
+                "goal": "Test mission",
+                "tasks": [{"id": "task-1", "title": "Task 1", "prompt": "Test task"}],
+            }
+        )
         parser = MissionSpecParser()
         spec = parser.parse(spec_json)
         self.assertEqual(spec.id, "mission-1")

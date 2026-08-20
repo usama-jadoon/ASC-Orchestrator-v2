@@ -7,15 +7,14 @@ Core execution loop for mission orchestration.
 from __future__ import annotations
 
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from .state import State
-from .repo import Repository
-from .verifier import Verifier
-from .models import Task, TaskStatus, SchedulerState, AttemptRecord
-from .dag import evaluate_mission, get_runnable_tasks
-from .adapters.mock import MockAdapter
 from .adapters.shell import ShellAdapter
+from .dag import evaluate_mission, get_runnable_tasks
+from .models import AttemptRecord, SchedulerState, Task, TaskStatus
+from .repo import Repository
+from .state import State
+from .verifier import Verifier
 
 
 class MissionDriver:
@@ -33,16 +32,26 @@ class MissionDriver:
         """Initialize driver with flexible arguments."""
         if args and isinstance(args[0], State):
             self.state = args[0]
-            self.adapter = kwargs.get('adapter') or (args[1] if len(args) > 1 else ShellAdapter())
-            self.repository = kwargs.get('repository', Repository())
-            self.db_path = kwargs.get('db_path') or (args[2] if len(args) > 2 else '.asc/asc.db')
-            self.timeout = kwargs.get('timeout') or (args[3] if len(args) > 3 else 300)
-            self.mission_id = kwargs.get('mission_id') or self.state.get_last_mission_id()
+            self.adapter = kwargs.get("adapter") or (
+                args[1] if len(args) > 1 else ShellAdapter()
+            )
+            self.repository = kwargs.get("repository", Repository())
+            self.db_path = kwargs.get("db_path") or (
+                args[2] if len(args) > 2 else ".asc/asc.db"
+            )
+            self.timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 300)
+            self.mission_id = (
+                kwargs.get("mission_id") or self.state.get_last_mission_id()
+            )
         else:
-            spec = kwargs.get('spec') or (args[0] if args else None)
-            db_path = kwargs.get('db_path') or (args[1] if len(args) > 1 else '.asc/asc.db')
-            adapter = kwargs.get('adapter') or (args[2] if len(args) > 2 else ShellAdapter())
-            timeout = kwargs.get('timeout') or (args[3] if len(args) > 3 else 300)
+            spec = kwargs.get("spec") or (args[0] if args else None)
+            db_path = kwargs.get("db_path") or (
+                args[1] if len(args) > 1 else ".asc/asc.db"
+            )
+            adapter = kwargs.get("adapter") or (
+                args[2] if len(args) > 2 else ShellAdapter()
+            )
+            timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 300)
 
             self.state = State(db_path)
             self.adapter = adapter
@@ -52,7 +61,7 @@ class MissionDriver:
 
             if spec:
                 self.state.save_mission(spec)
-                self.mission_id = spec.id if hasattr(spec, 'id') else spec.get('id')
+                self.mission_id = spec.id if hasattr(spec, "id") else spec.get("id")
             else:
                 self.mission_id = self.state.get_last_mission_id()
 
@@ -73,7 +82,7 @@ class MissionDriver:
         if not self.mission_id:
             self.mission_id = self.state.get_last_mission_id()
 
-        result = {
+        result: Dict[str, Any] = {
             "mission_id": self.mission_id,
             "final_status": None,
             "tasks_completed": 0,
@@ -87,7 +96,10 @@ class MissionDriver:
         outcome = self._evaluate()
 
         # Main execution loop
-        while outcome["state"] == SchedulerState.RUNNABLE or outcome["state"] == "RUNNABLE":
+        while (
+            outcome["state"] == SchedulerState.RUNNABLE
+            or outcome["state"] == "RUNNABLE"
+        ):
             task = self._get_next_task()
             if task is None:
                 break
@@ -97,11 +109,11 @@ class MissionDriver:
 
             if is_success:
                 self._complete_task(task)
-                result["tasks_completed"] += 1
+                result["tasks_completed"] = int(result["tasks_completed"]) + 1
             else:
                 task.status = TaskStatus.FAILED
                 self.state.update_task_status(task, exit_code=exit_code)
-                result["tasks_failed"] += 1
+                result["tasks_failed"] = int(result["tasks_failed"]) + 1
 
                 # Record attempt
                 attempt_record = AttemptRecord(
@@ -116,13 +128,15 @@ class MissionDriver:
 
                 # Mark as blocked on failure
                 self._block_task(task)
-                result["tasks_blocked"] += 1
+                result["tasks_blocked"] = int(result["tasks_blocked"]) + 1
 
             # Re-evaluate state
             outcome = self._evaluate()
 
         final_state = outcome["state"]
-        result["final_status"] = final_state.value if hasattr(final_state, "value") else str(final_state)
+        result["final_status"] = (
+            final_state.value if hasattr(final_state, "value") else str(final_state)
+        )
         return result
 
     def _evaluate(self) -> Dict[str, Any]:
@@ -153,23 +167,25 @@ class MissionDriver:
         self.state.update_task_status(task)
 
         # Log event
-        self.state.record_event({
-            "mission_id": self.mission_id,
-            "task_id": task.id,
-            "event_type": "TASK_STARTED",
-            "payload": {"title": task.title},
-        })
+        self.state.record_event(
+            {
+                "mission_id": self.mission_id,
+                "task_id": task.id,
+                "event_type": "TASK_STARTED",
+                "payload": {"title": task.title},
+            }
+        )
 
         # Run verification command if task has one
         if task.command and task.command.command:
             vr = self.verifier.run_verification([task.command])
-            is_success = (vr.exit_code == 0)
+            is_success = vr.exit_code == 0
             exit_code = vr.exit_code
         else:
             # Fallback to adapter execution
             adapter_res = self.adapter.execute(task, {})
-            exit_code = getattr(adapter_res, 'exit_code', 0)
-            is_success = (exit_code == 0)
+            exit_code = getattr(adapter_res, "exit_code", 0)
+            is_success = exit_code == 0
 
         return is_success, exit_code
 
@@ -186,12 +202,14 @@ class MissionDriver:
             task.commit_sha = sha
 
         # Log event
-        self.state.record_event({
-            "mission_id": self.mission_id,
-            "task_id": task.id,
-            "event_type": "TASK_COMPLETED",
-            "payload": {"title": task.title},
-        })
+        self.state.record_event(
+            {
+                "mission_id": self.mission_id,
+                "task_id": task.id,
+                "event_type": "TASK_COMPLETED",
+                "payload": {"title": task.title},
+            }
+        )
 
     def _block_task(self, task: Task) -> None:
         """Mark task as blocked."""

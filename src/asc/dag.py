@@ -4,6 +4,7 @@ Provides task readiness checks, runnable task discovery, and mission evaluation.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -13,6 +14,7 @@ from .models import SchedulerState, Task, TaskStatus
 @dataclass
 class MissionEvaluationResult:
     """Result of mission evaluation."""
+
     state: SchedulerState
     runnable_tasks: List[Task] = field(default_factory=list)
     blocked_ids: List[str] = field(default_factory=list)
@@ -85,11 +87,16 @@ def evaluate_mission(
 
     runnable = get_runnable_tasks(task_registry)
     if runnable:
-        return MissionEvaluationResult(state=SchedulerState.RUNNABLE, runnable_tasks=runnable)
+        return MissionEvaluationResult(
+            state=SchedulerState.RUNNABLE, runnable_tasks=runnable
+        )
 
     # BLOCKED: tasks exist but none are runnable
     blocked_ids = [
-        task.id for task in task_registry.values()
+        task.id
+        for task in task_registry.values()
         if task.status != TaskStatus.COMPLETED
     ]
-    return MissionEvaluationResult(state=SchedulerState.BLOCKED, blocked_ids=blocked_ids)
+    return MissionEvaluationResult(
+        state=SchedulerState.BLOCKED, blocked_ids=blocked_ids
+    )
