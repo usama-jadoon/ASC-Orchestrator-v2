@@ -6,17 +6,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.asc.models import (
+from asc.models import (
     MissionSpec, Task, TaskStatus, SchedulerState,
     VerificationCommand, VerificationResult, Mission
 )
-from src.asc.spec import MissionSpecParser
-from src.asc.dag import evaluate_mission, is_task_ready, get_runnable_tasks
-from src.asc.state import State
-from src.asc.verifier import Verifier
-from src.asc.adapters.mock import MockAdapter
-from src.asc.adapters.shell import ShellAdapter
-from src.asc.adapters.base import ActionFailed
+from asc.spec import MissionSpecParser
+from asc.dag import evaluate_mission, is_task_ready, get_runnable_tasks
+from asc.state import State
+from asc.verifier import Verifier
+from asc.adapters.mock import MockAdapter
+from asc.adapters.shell import ShellAdapter
+from asc.adapters.base import ActionFailed
 
 
 class TestMissionSpecParser(unittest.TestCase):

@@ -10,11 +10,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from src.asc.spec import MissionSpecParser
-from src.asc.state import State
-from src.asc.driver import MissionDriver
-from src.asc.dag import evaluate_mission, is_task_ready
-from src.asc.models import TaskStatus, SchedulerState
+from .spec import MissionSpecParser
+from .state import State
+from .driver import MissionDriver
+from .dag import evaluate_mission, is_task_ready
+from .models import TaskStatus, SchedulerState
 
 
 class CLI:

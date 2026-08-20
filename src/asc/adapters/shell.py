@@ -5,7 +5,8 @@ import sys
 import time
 from typing import Any
 
-from src.asc.models import Task, VerificationResult
+from ..models import Task, VerificationResult
+from .base import AgentAdapter, AgentResult
 
 
 class ShellAdapter:

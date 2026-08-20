@@ -7,7 +7,7 @@ import json
 import yaml
 from pathlib import Path
 from typing import Union, Dict, List
-from src.asc.models import MissionSpec, Task, VerificationCommand
+from .models import MissionSpec, Task, VerificationCommand
 
 
 class MissionSpecParser:

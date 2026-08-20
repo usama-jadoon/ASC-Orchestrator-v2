@@ -5,8 +5,8 @@ Defines the AgentAdapter abstract base class for all adapters.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any
-from src.asc.models import Task, AgentResult
-from src.asc.verifier import VerificationResult
+from ..models import Task, AgentResult
+from ..verifier import VerificationResult
 
 
 class AgentAdapter(ABC):

@@ -57,6 +57,10 @@ class Repository:
         """
         return self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 
+    def is_git_repo(self) -> bool:
+        """Check if path is a git repository."""
+        return (self.path / ".git").exists()
+
     def get_dirty_files(self) -> List[str]:
         """
         Get list of modified/unstage files.
@@ -64,5 +68,45 @@ class Repository:
         Returns:
             List of file paths relative to repository root
         """
-        out = self._run(["git", "diff", "--name-only"])
-        return out.splitlines() if out else []
+        if not self.is_git_repo():
+            return []
+        try:
+            out = self._run(["git", "diff", "--name-only"])
+            return out.splitlines() if out else []
+        except Exception:
+            return []
+
+    def has_changes(self) -> bool:
+        """Check if repository has uncommitted changes or untracked files."""
+        if not self.is_git_repo():
+            return False
+        try:
+            res = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=self.path,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            return bool(res.stdout.strip())
+        except Exception:
+            return False
+
+    def commit(self, message: str) -> str | None:
+        """Stage and commit changes if git repository exists."""
+        if not self.is_git_repo():
+            return None
+        try:
+            subprocess.run(["git", "add", "."], cwd=self.path, capture_output=True, check=False)
+            res = subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=self.path,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if res.returncode == 0:
+                return self.get_head_commit()
+        except Exception:
+            pass
+        return None

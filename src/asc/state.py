@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 
-from src.asc.models import Task, TaskStatus, AttemptRecord, MissionSpec, VerificationCommand, Mission
+from .models import Task, TaskStatus, AttemptRecord, MissionSpec, VerificationCommand, Mission
 
 
 class State:

@@ -1,4 +1,5 @@
-from src.asc.models import Task
+from ..models import Task
+from .base import AgentAdapter, AgentResult
 
 
 class MockResult:
