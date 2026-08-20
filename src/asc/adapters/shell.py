@@ -1,7 +1,6 @@
 """Shell adapter implementation."""
 
 import subprocess
-import sys
 import time
 from typing import Any
 
@@ -27,11 +26,10 @@ class ShellAdapter(AgentAdapter):
     def execute(self, task: Task, context: dict) -> Any:
         """Execute command and return verification result."""
         command_str = task.prompt
-        shell = sys.platform == "win32"
         try:
             start_time = time.time()
             result = subprocess.run(
-                command_str, capture_output=True, text=True, timeout=300, shell=shell
+                command_str, capture_output=True, text=True, timeout=300, shell=True
             )
             end_time = time.time()
             return VerificationResult(

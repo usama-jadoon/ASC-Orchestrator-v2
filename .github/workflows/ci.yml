@@ -86,7 +86,7 @@ jobs:
           PYTHONPATH: src
         run: |
           python -c "
-          from asc_orchestrator.release import verify, render
+          from asc.release_v2 import verify, render
           report = verify('.')
           for line in render(report):
               print(line)

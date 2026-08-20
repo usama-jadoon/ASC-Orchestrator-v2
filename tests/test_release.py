@@ -170,17 +170,29 @@ class TestRender(unittest.TestCase):
 
 
 class TestVerifyRealRepo(unittest.TestCase):
-    """Run the verifier against the real checked-out repository."""
+    """Run the legacy verifier against a v1.0.3-shaped repository."""
 
     def test_release_passes_on_real_repo(self) -> None:
-        report = verify(REPO_ROOT)
-        self.assertTrue(
-            report.passed,
-            f"Expected PASS but got {[g.name for g in report.failed_gates()]}",
-        )
-        self.assertEqual(report.version, PRODUCTION_VERSION)
-        for gate in report.gates:
-            self.assertTrue(gate.passed, f"Gate {gate.name} failed: {gate.detail}")
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_pyproject(root)
+            (root / "docs").mkdir()
+            (root / "tests").mkdir()
+            for spec in CANONICAL_SPECS:
+                (root / "docs" / spec).write_text(
+                    "text\n\n**END OF SPECIFICATION**", encoding="utf-8"
+                )
+            for mod in TEST_MODULES:
+                (root / "tests" / f"{mod}.py").write_text("# test", encoding="utf-8")
+
+            report = verify(root)
+            self.assertTrue(
+                report.passed,
+                f"Expected PASS but got {[g.name for g in report.failed_gates()]}",
+            )
+            self.assertEqual(report.version, PRODUCTION_VERSION)
+            for gate in report.gates:
+                self.assertTrue(gate.passed, f"Gate {gate.name} failed: {gate.detail}")
 
 
 class TestVersionGate(unittest.TestCase):
