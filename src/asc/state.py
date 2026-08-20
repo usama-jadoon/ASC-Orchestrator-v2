@@ -106,15 +106,38 @@ class State:
                 return Mission.from_row(row)
             return None
 
-    def create_mission(self, mission: MissionSpec) -> None:
-        """Create new mission record."""
+    def get_all_missions(self) -> List[Mission]:
+        """Retrieve all missions ordered by creation time."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            created_at = updated_at = time.time()
+            cursor.execute("SELECT * FROM missions ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            return [Mission.from_row(row) for row in rows]
+
+    def get_last_mission_id(self) -> Optional[str]:
+        """Get the ID of the most recent mission."""
+        missions = self.get_all_missions()
+        return missions[0].id if missions else None
+
+    def save_mission(self, spec: Any) -> None:
+        """Save a complete mission spec including all its tasks."""
+        mission_id = spec.id if hasattr(spec, 'id') else spec.get('id')
+        goal = spec.goal if hasattr(spec, 'goal') else spec.get('goal', '')
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            now = time.time()
             cursor.execute(
-                "INSERT INTO missions VALUES (?, ?, ?, ?, ?)",
-                (mission.id, mission.goal, 'PENDING', created_at, updated_at))
+                "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (mission_id, goal, 'PENDING', now, now)
+            )
             conn.commit()
+        tasks = spec.tasks if hasattr(spec, 'tasks') else spec.get('tasks', [])
+        for task in tasks:
+            self.save_task(task, mission_id)
+
+    def create_mission(self, mission: MissionSpec) -> None:
+        """Create new mission record."""
+        self.save_mission(mission)
 
     def get_tasks(self, mission_id: str) -> List[Task]:
         """Retrieve all tasks for a mission."""
