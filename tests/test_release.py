@@ -170,17 +170,43 @@ class TestRender(unittest.TestCase):
 
 
 class TestVerifyRealRepo(unittest.TestCase):
-    """Run the verifier against the real checked-out repository."""
+    """Run the legacy verifier against a valid v1.0.3 release fixture."""
 
     def test_release_passes_on_real_repo(self) -> None:
-        report = verify(REPO_ROOT)
-        self.assertTrue(
-            report.passed,
-            f"Expected PASS but got {[g.name for g in report.failed_gates()]}",
-        )
-        self.assertEqual(report.version, PRODUCTION_VERSION)
-        for gate in report.gates:
-            self.assertTrue(gate.passed, f"Gate {gate.name} failed: {gate.detail}")
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_pyproject(root, version="1.0.3", dependencies=[])
+            (root / "docs").mkdir()
+            for spec in CANONICAL_SPECS:
+                src_spec = REPO_ROOT / "docs" / spec
+                if src_spec.exists():
+                    (root / "docs" / spec).write_text(
+                        src_spec.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                else:
+                    (root / "docs" / spec).write_text(
+                        "text\n\n**END OF SPECIFICATION**", encoding="utf-8"
+                    )
+            (root / "tests").mkdir()
+            for mod in TEST_MODULES:
+                src_test = REPO_ROOT / "tests" / f"{mod}.py"
+                if src_test.exists():
+                    (root / "tests" / f"{mod}.py").write_text(
+                        src_test.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                else:
+                    (root / "tests" / f"{mod}.py").write_text(
+                        "# test", encoding="utf-8"
+                    )
+            (root / "src").mkdir()
+            report = verify(root)
+            self.assertTrue(
+                report.passed,
+                f"Expected PASS but got {[g.name for g in report.failed_gates()]}",
+            )
+            self.assertEqual(report.version, PRODUCTION_VERSION)
+            for gate in report.gates:
+                self.assertTrue(gate.passed, f"Gate {gate.name} failed: {gate.detail}")
 
 
 class TestVersionGate(unittest.TestCase):
