@@ -9,7 +9,6 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
-from .adapters.base import AgentAdapter
 from .adapters.mock import MockAdapter
 from .adapters.omp import OMPAdapter
 from .adapters.shell import ShellAdapter
@@ -40,6 +39,8 @@ def build_adapter(executor: str, timeout: int = 300) -> Any:
     if executor == "mock":
         return MockAdapter()
     raise ValueError(f"Unknown executor: {executor!r}")
+
+
 class MissionDriver:
     """
     Universal ASC Mission Driver.
@@ -285,6 +286,7 @@ class MissionDriver:
         task.status = TaskStatus.FAILED
         self.state.update_task_status(task, exit_code=last_exit_code)
         return False, last_exit_code
+
     def _complete_task(self, task: Task) -> None:
         """Mark task as completed and commit changes.
 

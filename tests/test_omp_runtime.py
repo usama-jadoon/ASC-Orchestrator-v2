@@ -19,6 +19,7 @@ from asc.adapters.mock import MockAdapter
 from asc.adapters.omp import OMPAdapter, OMPConfig
 from asc.driver import MissionDriver, build_adapter
 from asc.models import MissionDefaults, MissionSpec, Task, TaskStatus, VerificationCommand
+from asc.repo import Repository
 from asc.state import State
 
 
@@ -388,7 +389,7 @@ class TestCommitOnlyAfterVerifyPass(unittest.TestCase):
             defaults=MissionDefaults(max_attempts=1),
         )
         driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
-        driver.verifier = SucceedingVerifier()
+        driver.repository = Repository(self.temp_dir)
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
 
@@ -426,16 +427,21 @@ class TestExecutorSelection(unittest.TestCase):
     def test_build_adapter_unknown_raises(self):
         with self.assertRaises(ValueError):
             build_adapter("nonexistent", 300)
-
     def test_driver_uses_spec_executor_default(self):
         """Driver uses executor from spec.defaults.executor."""
         with patch("shutil.which", return_value="/fake/omp"):
-            spec = MissionSpec(
-                id="m1", goal="G",
-                tasks=[Task(id="t1", title="T1", prompt="hi")],
-                defaults=MissionDefaults(executor="shell"),
-            )
-            driver = MissionDriver(spec=spec, db_path=":memory:")
+            temp_dir = tempfile.mkdtemp()
+            try:
+                db_path = str(Path(temp_dir) / "test.db")
+                spec = MissionSpec(
+                    id="m1", goal="G",
+                    tasks=[Task(id="t1", title="T1", prompt="hi")],
+                    defaults=MissionDefaults(executor="shell"),
+                )
+                driver = MissionDriver(spec=spec, db_path=db_path)
+                self.assertEqual(driver.executor, "shell")
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
             self.assertEqual(driver.executor, "shell")
 
 
@@ -593,6 +599,7 @@ class TestGitSafety(unittest.TestCase):
         )
         driver = MissionDriver(spec=spec, db_path=str(self.db_path), adapter=SucceedingAdapter())
         driver.verifier = SucceedingVerifier()
+        driver.repository = Repository(self.temp_dir)
         task = driver.state.get_tasks("m1")[0]
         driver._execute_task_with_retry(task)
         driver._complete_task(task)
