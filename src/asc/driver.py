@@ -9,22 +9,46 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Optional
 
+from .adapters.base import AgentAdapter
+from .adapters.mock import MockAdapter
+from .adapters.omp import OMPAdapter
 from .adapters.shell import ShellAdapter
 from .dag import evaluate_mission, get_runnable_tasks
-from .models import AttemptRecord, SchedulerState, Task, TaskStatus
+from .models import (
+    AttemptRecord,
+    SchedulerState,
+    Task,
+    TaskStatus,
+)
 from .repo import Repository
 from .state import State
 from .verifier import Verifier
 
 
+def build_adapter(executor: str, timeout: int = 300) -> Any:
+    """Construct an adapter for the named executor.
+
+    Supported executors: ``omp`` (default), ``shell``, ``mock``.
+    Returns Any to accommodate the duck-typed test MockAdapter which does
+    not subclass AgentAdapter but satisfies the execute/can_execute contract.
+    """
+    executor = (executor or "omp").lower()
+    if executor == "omp":
+        return OMPAdapter(config=None)
+    if executor == "shell":
+        return ShellAdapter()
+    if executor == "mock":
+        return MockAdapter()
+    raise ValueError(f"Unknown executor: {executor!r}")
 class MissionDriver:
     """
-    MissionDriver orchestrates mission execution from start to completion.
+    Universal ASC Mission Driver.
 
-    Lifecycle:
-    1. Load mission state
-    2. Evaluate DAG for current state (RUNNABLE / COMPLETE / BLOCKED)
-    3. While RUNNABLE: dispatch task -> adapter -> verify -> commit -> mark COMPLETED
+    Execution lifecycle:
+    1. Load mission + tasks
+    2. Evaluate scheduler state (RUNNABLE / COMPLETE / BLOCKED)
+    3. While RUNNABLE: execute task -> verify -> (retry on failure) ->
+       commit only after verification PASS -> mark COMPLETED
     4. Exit when COMPLETE or BLOCKED
     """
 
@@ -43,21 +67,49 @@ class MissionDriver:
             self.mission_id = (
                 kwargs.get("mission_id") or self.state.get_last_mission_id()
             )
+            self.executor = kwargs.get("executor") or "omp"
+            self.working_directory = kwargs.get("working_directory")
+            # Defaults for retry/working_dir when instantiated with State
+            self._max_attempts = kwargs.get("max_attempts", 3)
+            self.spec_working_directory = kwargs.get("working_directory")
         else:
             spec = kwargs.get("spec") or (args[0] if args else None)
             db_path = kwargs.get("db_path") or (
                 args[1] if len(args) > 1 else ".asc/asc.db"
             )
-            adapter = kwargs.get("adapter") or (
-                args[2] if len(args) > 2 else ShellAdapter()
-            )
+            adapter = kwargs.get("adapter") or None
             timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 300)
 
             self.state = State(db_path)
-            self.adapter = adapter
             self.db_path = db_path
             self.timeout = timeout
             self.repository = Repository()
+            self.working_directory = kwargs.get("working_directory")
+
+            # Resolve executor from explicit arg, spec, or defaults.
+            spec_executor = getattr(spec, "executor", None) if spec else None
+            spec_defaults = getattr(spec, "defaults", None) if spec else None
+            default_executor = (
+                getattr(spec_defaults, "executor", None) if spec_defaults else None
+            )
+            self.executor = (
+                kwargs.get("executor") or spec_executor or default_executor or "omp"
+            )
+            self.adapter = adapter or (
+                args[2] if len(args) > 2 else build_adapter(self.executor, timeout)
+            )
+
+            # Capture spec-level defaults for retry/working_directory
+            if spec_defaults:
+                self._max_attempts = getattr(spec_defaults, "max_attempts", 3)
+                spec_wd = getattr(spec_defaults, "working_directory", None)
+                if spec_wd:
+                    self.spec_working_directory = spec_wd
+
+            # Also capture spec-level working_directory
+            spec_wd = getattr(spec, "working_directory", None) if spec else None
+            if spec_wd:
+                self.spec_working_directory = spec_wd
 
             if spec:
                 self.state.save_mission(spec)
@@ -104,29 +156,19 @@ class MissionDriver:
             if task is None:
                 break
 
-            # Execute task
-            is_success, exit_code = self._execute_task(task)
+            # Execute task with retry logic (execute -> verify -> retry)
+            is_success, exit_code = self._execute_task_with_retry(task)
 
             if is_success:
                 self._complete_task(task)
                 result["tasks_completed"] = int(result["tasks_completed"]) + 1
+                if task.commit_sha:
+                    result["git_commits"].append(task.commit_sha)
             else:
+                # Exhausted retries -> mark failed and blocked
                 task.status = TaskStatus.FAILED
                 self.state.update_task_status(task, exit_code=exit_code)
                 result["tasks_failed"] = int(result["tasks_failed"]) + 1
-
-                # Record attempt
-                attempt_record = AttemptRecord(
-                    id=f"att_{task.id}_{time.time()}",
-                    task_id=task.id,
-                    attempt_number=1,
-                    status=TaskStatus.FAILED,
-                    exit_code=exit_code,
-                    timestamp=time.time(),
-                )
-                self.state.record_attempt(attempt_record)
-
-                # Mark as blocked on failure
                 self._block_task(task)
                 result["tasks_blocked"] = int(result["tasks_blocked"]) + 1
 
@@ -139,58 +181,116 @@ class MissionDriver:
         )
         return result
 
-    def _evaluate(self) -> Dict[str, Any]:
-        """Evaluate current mission state."""
-        tasks = self._get_all_tasks()
-        eval_res = evaluate_mission(self.mission_id or "default", tasks)
-        return {
-            "state": eval_res.state,
-            "runnable": eval_res.runnable_tasks,
-            "diagnostics": eval_res.blocked_ids,
-        }
+    def _get_max_attempts(self, task: Task) -> int:
+        """Get max_attempts from task defaults or spec defaults."""
+        # Try task metadata first
+        if task.metadata and "max_attempts" in task.metadata:
+            return int(task.metadata["max_attempts"])
+        # Fall back to driver/spec defaults
+        return getattr(self, "_max_attempts", 3)
 
-    def _get_next_task(self) -> Optional[Task]:
-        """Get the next task to execute."""
-        tasks = self._get_all_tasks()
-        runnable = get_runnable_tasks(tasks)
-        return runnable[0] if runnable else None
-
-    def _execute_task(self, task: Task) -> tuple[bool, int]:
-        """
-        Execute a task through adapter and verifier.
+    def _execute_task_with_retry(self, task: Task) -> tuple[bool, int]:
+        """Execute task through adapter then verify; retry on failure.
 
         Returns:
             (success: bool, exit_code: int)
         """
-        task.status = TaskStatus.RUNNING
-        task.started_at = time.time()
-        self.state.update_task_status(task)
+        max_attempts = self._get_max_attempts(task)
+        attempt = 0
+        last_exit_code = 1
 
-        # Log event
-        self.state.record_event(
-            {
-                "mission_id": self.mission_id,
-                "task_id": task.id,
-                "event_type": "TASK_STARTED",
-                "payload": {"title": task.title},
-            }
-        )
+        # Build execution context with working directory
+        context = {
+            "working_directory": (
+                task.working_directory
+                or self.working_directory
+                or getattr(self, "spec_working_directory", None)
+                or "."
+            )
+        }
 
-        # Run verification command if task has one
-        if task.command and task.command.command:
-            vr = self.verifier.run_verification([task.command])
-            is_success = vr.exit_code == 0
-            exit_code = vr.exit_code
-        else:
-            # Fallback to adapter execution
-            adapter_res = self.adapter.execute(task, {})
-            exit_code = getattr(adapter_res, "exit_code", 0)
-            is_success = exit_code == 0
+        while attempt < max_attempts:
+            attempt += 1
 
-        return is_success, exit_code
+            task.status = TaskStatus.RUNNING
+            task.started_at = time.time()
+            self.state.update_task_status(task)
 
+            # Log event
+            self.state.record_event(
+                {
+                    "mission_id": self.mission_id,
+                    "task_id": task.id,
+                    "event_type": "TASK_STARTED",
+                    "payload": {"title": task.title, "attempt": attempt},
+                }
+            )
+
+            # Stage 1: EXECUTE via adapter
+            adapter_res = self.adapter.execute(task, context)
+            exec_exit = getattr(adapter_res, "exit_code", 1)
+            exec_stdout = getattr(adapter_res, "stdout", "")
+            exec_stderr = getattr(adapter_res, "stderr", "")
+            exec_success = exec_exit == 0
+            # Record attempt
+            attempt_record = AttemptRecord(
+                id=f"att_{task.id}_{attempt}",
+                task_id=task.id,
+                attempt_number=attempt,
+                status=TaskStatus.COMPLETED if exec_success else TaskStatus.FAILED,
+                exit_code=exec_exit,
+                stdout=exec_stdout,
+                stderr=exec_stderr,
+                timestamp=time.time(),
+            )
+            self.state.record_attempt(attempt_record)
+
+            if not exec_success:
+                last_exit_code = exec_exit
+                # Execution failed -> retry if attempts remain
+                continue
+
+            # Stage 2: VERIFY if task has verification command
+            if task.command and task.command.command:
+                vr = self.verifier.run_verification(
+                    [task.command],
+                    cwd=context.get("working_directory", "."),
+                )
+                verify_exit = vr.exit_code
+                verify_stdout = vr.stdout
+                verify_stderr = vr.stderr
+
+                # Record verification attempt
+                verify_record = AttemptRecord(
+                    id=f"att_{task.id}_{attempt}_verify",
+                    task_id=task.id,
+                    attempt_number=attempt,
+                    status=TaskStatus.COMPLETED if vr.success else TaskStatus.FAILED,
+                    exit_code=verify_exit,
+                    stdout=verify_stdout,
+                    stderr=verify_stderr,
+                    timestamp=time.time(),
+                )
+                self.state.record_attempt(verify_record)
+
+                if not vr.success:
+                    last_exit_code = verify_exit
+                    # Verification failed -> retry if attempts remain
+                    continue
+
+            # Both execution and verification succeeded
+            return True, 0
+
+        # Exhausted all attempts - mark task as failed
+        task.status = TaskStatus.FAILED
+        self.state.update_task_status(task, exit_code=last_exit_code)
+        return False, last_exit_code
     def _complete_task(self, task: Task) -> None:
-        """Mark task as completed and update state."""
+        """Mark task as completed and commit changes.
+
+        Commits ONLY after verification PASS (this method is only called
+        after successful verification).
+        """
         task.status = TaskStatus.COMPLETED
         task.completed_at = time.time()
         self.state.update_task_status(task, exit_code=0)
@@ -207,7 +307,7 @@ class MissionDriver:
                 "mission_id": self.mission_id,
                 "task_id": task.id,
                 "event_type": "TASK_COMPLETED",
-                "payload": {"title": task.title},
+                "payload": {"title": task.title, "commit_sha": task.commit_sha},
             }
         )
 
@@ -215,6 +315,22 @@ class MissionDriver:
         """Mark task as blocked."""
         task.status = TaskStatus.BLOCKED
         self.state.update_task_status(task)
+
+    def _evaluate(self) -> Dict[str, Any]:
+        """Evaluate current mission state."""
+        tasks = self._get_all_tasks()
+        eval_res = evaluate_mission(self.mission_id or "default", tasks)
+        return {
+            "state": eval_res.state,
+            "runnable": eval_res.runnable_tasks,
+            "diagnostics": eval_res.blocked_ids,
+        }
+
+    def _get_next_task(self) -> Optional[Task]:
+        """Get the next task to execute."""
+        tasks = self._get_all_tasks()
+        runnable = get_runnable_tasks(tasks)
+        return runnable[0] if runnable else None
 
     def _get_all_tasks(self) -> Dict[str, Task]:
         """Get all tasks for the current mission."""

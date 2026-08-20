@@ -65,6 +65,8 @@ class Task:
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     commit_sha: Optional[str] = None
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
 
 
 @dataclass
@@ -73,6 +75,8 @@ class MissionDefaults:
 
     max_attempts: int = 3
     verification_timeout: int = 300
+    executor: str = "omp"
+    working_directory: Optional[str] = None
 
 
 @dataclass
@@ -83,6 +87,8 @@ class MissionSpec:
     goal: str
     tasks: List[Task]
     defaults: MissionDefaults = field(default_factory=MissionDefaults)
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
 
 
 @dataclass

@@ -62,6 +62,9 @@ class State:
                     completed_at REAL,
                     exit_code INTEGER,
                     updated_at REAL NOT NULL,
+                    working_directory TEXT,
+                    executor TEXT,
+                    metadata TEXT,
                     FOREIGN KEY(mission_id) REFERENCES missions(id)
                 )""")
 
@@ -173,21 +176,20 @@ class State:
                     "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
                     (task.status.value, updated_at, task.id),
                 )
-            conn.commit()
-            return cursor.rowcount > 0
-
     def save_task(self, task: Task, mission_id: str) -> None:
         """Insert or update a task record."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             depends_json = json.dumps(task.depends_on)
             command_str = task.command.command if task.command else None
+            metadata_json = json.dumps(task.metadata) if task.metadata else None
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO tasks
                 (id, mission_id, title, status, depends_on, prompt, command,
-                 attempt_count, commit_sha, started_at, completed_at, exit_code, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 attempt_count, commit_sha, started_at, completed_at, exit_code, updated_at,
+                 working_directory, executor, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     task.id,
@@ -203,9 +205,12 @@ class State:
                     task.completed_at,
                     None,
                     time.time(),
+                    task.working_directory,
+                    task.executor,
+                    metadata_json,
                 ),
             )
-            conn.commit()
+
 
     def record_attempt(self, attempt_data: Any) -> None:
         """Record task attempt details."""
@@ -283,12 +288,14 @@ class State:
                 ),
             )
             conn.commit()
-
     def get_events(self, mission_id: str) -> List[Dict[str, Any]]:
         """Retrieve events for a mission."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM events WHERE mission_id = ?", (mission_id,))
+            cursor.execute(
+                "SELECT * FROM events WHERE mission_id = ? ORDER BY timestamp ASC",
+                (mission_id,),
+            )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 
@@ -302,6 +309,7 @@ class State:
         command = None
         if row["command"]:
             command = VerificationCommand(command=row["command"])
+        metadata = json.loads(row["metadata"]) if row["metadata"] else {}
         return Task(
             id=row["id"],
             title=row["title"],
@@ -312,4 +320,7 @@ class State:
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             commit_sha=row["commit_sha"],
+            working_directory=row["working_directory"],
+            executor=row["executor"],
+            metadata=metadata,
         )

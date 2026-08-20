@@ -91,37 +91,44 @@ class OMPAdapter(AgentAdapter):
             )
         return self._omp_executable
 
-    def _sanitize_prompt(self, prompt: str) -> str:
-        """Sanitize task prompt for safe execution."""
-        # Basic sanitization - remove dangerous patterns
-        dangerous = ["rm -rf", "sudo ", "del /f", "format ", "mkfs"]
-        sanitized = prompt
-        for danger in dangerous:
-            if danger in sanitized.lower():
-                sanitized = sanitized.replace(danger, "# BLOCKED: " + danger)
-        return sanitized
+    def _resolve_working_dir(self, context: Dict[str, Any]) -> str:
+        """Resolve the working directory for execution.
+
+        Priority: task-level working_directory, then adapter config, then
+        context, then current directory.
+        """
+        work_dir = (
+            context.get("working_directory") or self.config.working_directory or "."
+        )
+        return str(work_dir)
 
     def execute(self, task: Task, context: Dict[str, Any]) -> VerificationResult:
-        """Execute task through OMP CLI."""
+        """Execute task through the real OMP CLI.
+
+        Uses the verified OMP invocation:
+            omp launch [MESSAGES...] [FLAGS]
+        where MESSAGES are positional (the task prompt), and supported flags
+        include --cwd, -p/--print (non-interactive), and --auto-approve.
+        There is no `run` subcommand and no `--timeout` flag; the timeout is
+        enforced by this harness via subprocess.
+        """
         try:
             omp_executable = self._get_omp_executable()
-            work_dir = self.config.working_directory or context.get(
-                "working_directory", "."
-            )
+            work_dir = self._resolve_working_dir(context)
 
-            # Build OMP command
-            # OMP CLI typically uses: omp run --prompt "task description"
-            cmd = [omp_executable, "run", "--prompt", task.prompt]
+            # Real OMP CLI invocation. The prompt is passed as a positional
+            # argument; no invented --prompt flag. Windows paths with spaces
+            # are passed as a single argv element (no shell), so quoting is
+            # handled by subprocess/argv, not by the harness.
+            cmd = [omp_executable, "launch", "-p", "--auto-approve"]
+            if work_dir and work_dir != ".":
+                cmd.extend(["--cwd", work_dir])
+            cmd.append(task.prompt)
 
-            # Add working directory if specified
-            if work_dir != ".":
-                cmd.extend(["--working-dir", work_dir])
-
-            # Execute with timeout
             start_time = time.time()
             result = subprocess.run(
                 cmd,
-                cwd=work_dir,
+                cwd=work_dir if work_dir != "." else None,
                 capture_output=True,
                 text=True,
                 timeout=self.config.timeout,
@@ -137,7 +144,6 @@ class OMPAdapter(AgentAdapter):
                 exit_code=result.returncode,
                 duration=end_time - start_time,
             )
-
         except subprocess.TimeoutExpired as exc:
             return VerificationResult(
                 command=VerificationCommand(command="OMP execution"),
