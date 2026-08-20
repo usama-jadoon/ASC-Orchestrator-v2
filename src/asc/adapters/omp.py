@@ -21,6 +21,7 @@ from .base import AgentAdapter
 @dataclass
 class OMPConfig:
     """Configuration for OMP adapter."""
+
     timeout: int = 300
     omp_path: Optional[str] = None
     working_directory: Optional[str] = None
@@ -53,11 +54,11 @@ class OMPAdapter(AgentAdapter):
         """Discover OMP executable from PATH or config."""
         # Check explicit config first
         if self.config.omp_path:
-            path = Path(self.config.omp_path)
-            if path.exists() and os.access(path, os.X_OK):
-                return str(path)
+            omp_path = self.config.omp_path
+            if os.path.exists(omp_path) and os.access(omp_path, os.X_OK):
+                return omp_path
             # Try as just a name in PATH
-            found = shutil.which(self.config.omp_path)
+            found = shutil.which(omp_path)
             if found:
                 return found
 
@@ -69,14 +70,14 @@ class OMPAdapter(AgentAdapter):
 
         # Check common install locations on Windows
         if os.name == "nt":
-            for path in [
+            for install_path in [
                 r"C:\Program Files\OMP\omp.exe",
                 r"C:\Program Files (x86)\OMP\omp.exe",
                 os.path.expandvars(r"%LOCALAPPDATA%\Programs\OMP\omp.exe"),
                 os.path.expandvars(r"%APPDATA%\OMP\omp.exe"),
             ]:
-                if os.path.exists(path):
-                    return path
+                if os.path.exists(install_path):
+                    return install_path
 
         return None
 
@@ -104,7 +105,9 @@ class OMPAdapter(AgentAdapter):
         """Execute task through OMP CLI."""
         try:
             omp_executable = self._get_omp_executable()
-            work_dir = self.config.working_directory or context.get("working_directory", ".")
+            work_dir = self.config.working_directory or context.get(
+                "working_directory", "."
+            )
 
             # Build OMP command
             # OMP CLI typically uses: omp run --prompt "task description"
@@ -126,7 +129,9 @@ class OMPAdapter(AgentAdapter):
             end_time = time.time()
 
             return VerificationResult(
-                command=VerificationCommand(command=" ".join(shlex.quote(c) for c in cmd)),
+                command=VerificationCommand(
+                    command=" ".join(shlex.quote(c) for c in cmd)
+                ),
                 stdout=result.stdout,
                 stderr=result.stderr,
                 exit_code=result.returncode,

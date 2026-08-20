@@ -125,6 +125,11 @@ class State:
         missions = self.get_all_missions()
         return missions[0].id if missions else None
 
+    def get_attempt_count(self, task_id: str) -> int:
+        """Get the number of attempts for a task."""
+        attempts = self.get_attempts(task_id)
+        return len(attempts) if attempts else 0
+
     def save_mission(self, spec: Any) -> None:
         """Save a complete mission spec including all its tasks."""
         mission_id = spec.id if hasattr(spec, "id") else spec.get("id")

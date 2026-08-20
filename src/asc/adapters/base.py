@@ -13,7 +13,7 @@ class AgentAdapter(ABC):
     """Abstract base class for task executors."""
 
     @abstractmethod
-    async def execute(self, task: Task, context: Dict[str, Any]) -> Any:
+    def execute(self, task: Task, context: Dict[str, Any]) -> Any:
         """Execute a task and return the result."""
         pass
 
