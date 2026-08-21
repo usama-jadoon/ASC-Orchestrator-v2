@@ -6,6 +6,7 @@ Core execution loop for mission orchestration.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -118,10 +119,16 @@ class MissionDriver:
                 if spec_wd:
                     self.spec_working_directory = spec_wd
 
-            # Also capture spec-level working_directory
+            # Also capture spec-level working_directory and model
             spec_wd = getattr(spec, "working_directory", None) if spec else None
             if spec_wd:
                 self.spec_working_directory = spec_wd
+
+            self.model = (
+                kwargs.get("model")
+                or (getattr(spec, "model", None) if spec else None)
+                or (getattr(spec_defaults, "model", None) if spec_defaults else None)
+            )
 
             if spec:
                 self.state.save_mission(spec)
@@ -211,14 +218,20 @@ class MissionDriver:
         attempt = 0
         last_exit_code = 1
 
-        # Build execution context with working directory
+        # Build execution context with working directory and model
+        task_model = (
+            task.model
+            or getattr(self, "model", None)
+            or os.environ.get("OMP_MODEL")
+        )
         context = {
             "working_directory": (
                 task.working_directory
                 or self.working_directory
                 or getattr(self, "spec_working_directory", None)
                 or "."
-            )
+            ),
+            "model": task_model,
         }
 
         while attempt < max_attempts:

@@ -25,6 +25,7 @@ class OMPConfig:
     timeout: int = 300
     omp_path: Optional[str] = None
     working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 class OMPAdapter(AgentAdapter):
@@ -128,10 +129,18 @@ class OMPAdapter(AgentAdapter):
             work_dir = self._resolve_working_dir(context)
 
             # Real OMP CLI invocation for non-interactive execution:
-            #   omp -p --auto-approve [--cwd <target>] <prompt>
+            #   omp -p --auto-approve [--model <model>] [--cwd <target>] <prompt>
             # There is NO launch subcommand. The prompt is passed as a positional argument.
             # Windows paths with spaces are passed as a single argv element without shell=True.
             cmd = [omp_executable, "-p", "--auto-approve"]
+            model = (
+                (context or {}).get("model")
+                or (task.metadata or {}).get("model")
+                or getattr(self.config, "model", None)
+                or os.environ.get("OMP_MODEL")
+            )
+            if model:
+                cmd.extend(["--model", model])
             if work_dir and work_dir != ".":
                 cmd.extend(["--cwd", work_dir])
             cmd.append(task.prompt)

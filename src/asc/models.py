@@ -67,6 +67,7 @@ class Task:
     commit_sha: Optional[str] = None
     executor: Optional[str] = None
     working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass
@@ -77,6 +78,7 @@ class MissionDefaults:
     verification_timeout: int = 300
     executor: str = "omp"
     working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass
@@ -89,6 +91,7 @@ class MissionSpec:
     defaults: MissionDefaults = field(default_factory=MissionDefaults)
     executor: Optional[str] = None
     working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass

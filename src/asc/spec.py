@@ -67,12 +67,14 @@ class MissionSpecParser:
                 verification_timeout=int(defaults_data.get("verification_timeout", 300)),
                 executor=str(defaults_data.get("executor", "omp")),
                 working_directory=defaults_data.get("working_directory"),
+                model=defaults_data.get("model"),
             )
         else:
             defaults = MissionDefaults()
 
         spec_executor = data.get("executor") or defaults.executor
         spec_working_directory = data.get("working_directory") or defaults.working_directory
+        spec_model = data.get("model") or defaults.model
 
         task_ids = set()
         tasks = []
@@ -135,6 +137,7 @@ class MissionSpecParser:
 
             task_executor = task_data.get("executor")
             task_working_directory = task_data.get("working_directory")
+            task_model = task_data.get("model")
 
             tasks.append(
                 Task(
@@ -145,6 +148,7 @@ class MissionSpecParser:
                     command=command,
                     executor=task_executor,
                     working_directory=task_working_directory,
+                    model=task_model,
                     metadata=task_data.get("metadata", {}),
                 )
             )
@@ -156,6 +160,7 @@ class MissionSpecParser:
             defaults=defaults,
             executor=spec_executor,
             working_directory=spec_working_directory,
+            model=spec_model,
         )
 
     @staticmethod
