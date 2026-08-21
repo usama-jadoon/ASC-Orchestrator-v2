@@ -1,0 +1,127 @@
+﻿id: inboxshield-runtime-foundation-v1
+
+goal: >
+  Establish a truthful, reproducible local PostgreSQL and Redis runtime
+  foundation for InboxShield AI without changing existing product ownership
+  boundaries.
+
+defaults:
+  executor: omp
+  working_directory: "D:/Usama Data/All Software/InboxShield-AI"
+  max_attempts: 2
+  verification_timeout: 900
+
+tasks:
+
+  - id: runtime-foundation
+    title: Add reproducible PostgreSQL and Redis local runtime
+    prompt: |
+      You are working inside the existing InboxShield-AI repository.
+
+      Continue from the CURRENT repository state.
+      Do not restart or redesign the project.
+
+      First inspect:
+      - package.json
+      - apps/web
+      - apps/worker
+      - packages/db
+      - Prisma configuration
+      - existing environment variable usage
+      - existing docs
+      - existing health checks
+
+      GOAL:
+      Establish a reproducible local development runtime for the infrastructure
+      InboxShield already depends on.
+
+      Implement the smallest correct solution for:
+
+      1. PostgreSQL local runtime
+      2. Redis local runtime
+      3. Docker Compose configuration
+      4. safe example environment configuration
+      5. clear local start/stop instructions
+      6. correct persistence/volume configuration
+      7. health checks where appropriate
+
+      IMPORTANT ARCHITECTURE RULES:
+
+      - InboxShield remains the TypeScript product.
+      - BullMQ remains responsible for scan jobs, retries, scheduling,
+        webhook processing and operational workers.
+      - PostgreSQL remains InboxShield factual/product storage.
+      - Redis remains BullMQ/runtime infrastructure.
+      - Do NOT copy ASC source into InboxShield.
+      - Do NOT vendor ASC.
+      - Do NOT replace BullMQ with ASC.
+      - Do NOT add provider/model routing to InboxShield.
+      - Do NOT change scanner factual truth.
+      - Do NOT fabricate successful runtime evidence.
+
+      SECURITY:
+
+      - no real credentials in Git
+      - use development-safe example credentials only where appropriate
+      - document which values must be changed outside local development
+      - do not expose unnecessary services publicly
+
+      REPOSITORY SAFETY:
+
+      - inspect current git status before editing
+      - preserve pre-existing user changes
+      - do not push
+      - do not merge
+      - do not tag
+      - do not release
+
+      Update relevant documentation truthfully.
+
+      Do not claim PostgreSQL/Redis runtime execution was verified unless the
+      services were actually started and verified.
+
+      Once implementation is complete, stop.
+    verify:
+      command: "docker compose config && npx turbo run typecheck && npm test"
+
+  - id: runtime-readiness
+    title: Add bounded runtime readiness verification
+    depends_on:
+      - runtime-foundation
+    prompt: |
+      Continue from the verified runtime-foundation task.
+
+      Add the smallest maintainable mechanism necessary to verify the
+      InboxShield local runtime readiness.
+
+      Inspect existing worker health-check implementation before changing code.
+
+      The desired truth path is:
+
+      PostgreSQL available
+        +
+      Redis available
+        ↓
+      InboxShield dependencies connect
+        ↓
+      existing health/readiness logic reports real status
+
+      Requirements:
+
+      - reuse existing health-check logic instead of creating duplicate truth
+      - failures must remain failures; do not fake successful probes
+      - use bounded waits/timeouts
+      - do not create endless retry loops
+      - preserve existing BullMQ architecture
+      - add focused tests where code changes require them
+      - update local-development documentation
+      - no push, merge, tag or release
+
+      If live Docker services cannot be started in the current environment,
+      preserve truthful automated configuration/tests and explicitly report
+      live verification as NOT VERIFIED rather than fabricating PASS.
+
+      Stop once the defined task is implemented and verified.
+    verify:
+      command: "npx turbo run typecheck && npm test && npm run build"
+

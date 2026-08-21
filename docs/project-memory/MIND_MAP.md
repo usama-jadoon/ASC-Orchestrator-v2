@@ -253,6 +253,14 @@ NEXT: Bounded real-project pilot
 [✓] SQLite mission/task/attempt/event state
 [✓] Database-level atomic attempt counting
 [✓] Universal CLI (init, validate, run, status, resume, doctor)
+[✓] Interactive Developer Operator Console (Textual/Rich REPL, telemetry)
+[✓] Decoupled domain event emitter & background heartbeat streaming
+[✓] Project execution mutual exclusion lock (<repo>/.git/asc/lock) with stale recovery
+[✓] Safe repository state location (<repo>/.git/asc/asc.db)
+[✓] Real-project Git safety (pre-execution dirty check & fail closed)
+[✓] Scoped change-set staging (no blind git add .) & safe attempt delta rollback
+[✓] Scheduler RUNNING state fix
+[✓] Separate execution_timeout and verification_timeout
 [✓] Mock/Shell/OMP adapters
 [✓] Real OMP process execution (omp -p --auto-approve --cwd <dir>)
 [✓] Model routing parameter propagation (--model)
@@ -261,15 +269,14 @@ NEXT: Bounded real-project pilot
 [✓] Bounded retries / max_attempts enforcement
 [✓] Commit only on verification PASS
 [✓] Real Sandbox OMP E2E (2/2 tasks, verified commits, COMPLETE)
-[✓] Full test suite (715 passed, 6 skipped, 4 subtests)
-[✓] Quality gates (Ruff lint & format, MyPy 36 files clean)
+[✓] Full test suite (72+ focused tests, 730+ full suite)
+[✓] Quality gates (Ruff lint & format, MyPy 39 files clean)
 ```
 
 ## Not complete (Future scope)
 
 ```text
-[ ] Real-world project pilot
-[ ] Finer-grained task-scoped Git index staging isolation
+[ ] Controlled real-world project pilot continuation (e.g. InboxShield-AI)
 [ ] Multi-command verification sequence specification
 [ ] Final convergence of legacy PESE (.project-os/) and Universal SQLite (.asc/)
 ```

@@ -1,4 +1,4 @@
-"""Universal ASC v2.0.0 - Production Release Verifier.
+"""Universal ASC v2.2.0 - Production Release Verifier.
 
 Certifies that the Universal ASC v2 repository/package satisfies production release gates.
 """
@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-PRODUCTION_VERSION = "2.0.0"
+PRODUCTION_VERSION = "2.2.0"
 PROJECT_NAME = "asc-orchestrator"
 CONSOLE_ENTRY_POINT = "asc.cli:main"
 
@@ -24,9 +24,13 @@ RUNTIME_MODULES = (
     "asc.repo",
     "asc.driver",
     "asc.cli",
+    "asc.events",
+    "asc.lock",
+    "asc.console",
     "asc.adapters.base",
     "asc.adapters.mock",
     "asc.adapters.shell",
+    "asc.adapters.omp",
 )
 
 

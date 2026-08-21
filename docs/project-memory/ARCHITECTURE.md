@@ -131,6 +131,7 @@ TaskStatus:
 
 SchedulerState:
     RUNNABLE
+    RUNNING
     COMPLETE
     BLOCKED
 
@@ -145,14 +146,14 @@ MissionStateRecord
 AgentResult
 ```
 
-`MissionDefaults` currently includes:
+`MissionDefaults` / `Task` support:
 
 ```text
 max_attempts = 3
+execution_timeout = 600
 verification_timeout = 300
+commit_paths = Optional[List[str]]
 ```
-
-Important: declaring these defaults does not mean the complete retry contract is already implemented.
 
 ---
 
@@ -176,12 +177,7 @@ title
 prompt
 ```
 
-Optional:
-
-```text
-depends_on
-command
-```
+Optional task & defaults fields: `execution_timeout`, `verification_timeout`, `executor`, `working_directory`, `model`, `commit_paths`, `metadata`.
 
 The parser checks:
 
@@ -205,7 +201,7 @@ The DAG layer answers:
 ```text
 Is a task ready?
 Which tasks are runnable?
-Is the mission RUNNABLE, COMPLETE or BLOCKED?
+Is the mission RUNNABLE, RUNNING, COMPLETE or BLOCKED?
 ```
 
 A task is ready only when:
@@ -219,12 +215,13 @@ all dependencies == COMPLETED
 Mission evaluation:
 
 ```text
-all completed        → COMPLETE
-runnable tasks exist → RUNNABLE
-otherwise            → BLOCKED
+all completed         → COMPLETE
+active tasks running  → RUNNING
+runnable tasks exist  → RUNNABLE
+otherwise             → BLOCKED
 ```
 
-This is intentionally simple and deterministic.
+This is deterministic and prevents premature blocking while tasks are in execution.
 
 ---
 
@@ -232,11 +229,14 @@ This is intentionally simple and deterministic.
 
 Universal ASC uses SQLite.
 
-Default database:
+Default database location:
 
 ```text
-.asc/asc.db
+Inside Git repository:  <repo>/.git/asc/asc.db
+Non-Git directory:      <cwd>/.asc/asc.db
 ```
+
+Storing the database in `<repo>/.git/asc/` ensures running ASC does not create untracked `.asc/` folders inside user projects.
 
 Current tables:
 

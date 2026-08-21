@@ -522,9 +522,58 @@ UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?
 
 inside a single SQLite transaction and query back the resulting count.
 
-## Concurrency Invariant
+# ADR-028 — Interactive Developer Operator Console as Primary Experience
 
-ASC v2.1 operates as a single-driver deterministic scheduler loop per mission. Attempt tracking is durably persisted; concurrent multi-driver execution is out of scope for v2.1.
+**Status:** Accepted in v2.2
+
+## Context
+Running `python script.py mission.yaml` does not provide an enterprise-grade developer CLI experience. Operators need live visual telemetry, DAG progress, system diagnostics, and interactive controls similar to modern developer CLIs (OMP, Claude Code).
+
+## Decision
+1. Bare `asc` command launches the interactive terminal operator console (Textual/Rich).
+2. Subcommands (`asc doctor`, `asc status`, `asc logs`, `asc run`, `asc resume`, `asc validate`) provide one-shot scripting integration.
+3. System diagnostics (`asc doctor`) report real environment metadata and truthful provider status (`OmniRoute: UNKNOWN / NOT PROBED`).
+
+---
+
+# ADR-029 — Project Execution Mutual Exclusion Lock
+
+**Status:** Accepted in v2.2
+
+## Context
+Running multiple ASC driver instances concurrently against the same repository risks database lock conflicts and corrupting git worktrees.
+
+## Decision
+Implement `ProjectLock` using a file-based lock (`<repo>/.git/asc/lock` or `<cwd>/.asc/lock`) containing PID and mission metadata.
+Single driver acquires lock on start, releases on termination.
+If existing lock PID is dead, lock auto-recovers safely.
+
+---
+
+# ADR-030 — Real-Project Git Safety: Pre-Execution Dirty Check & Scoped Staging
+
+**Status:** Accepted in v2.2
+
+## Context
+Running autonomous coding missions on real projects can accidentally stage or commit unrelated uncommitted files, or wipe out uncommitted user changes if using destructive `git reset --hard` / `git add .`.
+
+## Decision
+1. Pre-execution clean check: fail closed if repository has uncommitted modifications or untracked files before starting.
+2. Scoped staging (`commit_scoped`): stage only files created or modified by the specific task attempt. Never use broad `git add .`.
+3. Safe attempt delta rollback: on failed execution or failed verification, delete only task-created untracked delta files and restore modified files. Never reset user working tree broadly.
+
+---
+
+# ADR-031 — Safe State Location in `<repo>/.git/asc/`
+
+**Status:** Accepted in v2.2
+
+## Context
+Storing SQLite state in `<cwd>/.asc/asc.db` introduces untracked files into the user's working tree.
+
+## Decision
+If inside a Git repository, default state path resolves to `<repo_root>/.git/asc/asc.db`.
+If outside a Git repository, falls back to `<cwd>/.asc/asc.db`.
 
 ---
 

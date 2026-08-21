@@ -337,21 +337,34 @@ Mission reaches terminal COMPLETE (clean working tree)
 
 ---
 
-# 8. Next milestone — Real Project Pilot (Planned)
+### Milestone 2 — Universal ASC v2.1: Real OMP Runtime Integration (COMPLETED & VERIFIED)
 
-After the disposable sandbox vertical slice success:
+Proved real OMP process execution (`omp -p --auto-approve --cwd <dir>`), execute-then-verify pipeline, bounded retries, Windows path handling with spaces, and real sandbox E2E pass.
 
-1. choose one small, bounded real-project change,
-2. update all master docs before implementation,
-3. create one mission,
-4. allow ASC to select work,
-5. allow OMP to execute,
-6. verify,
-7. commit,
-8. inspect evidence,
-9. stop after acceptance.
+---
 
-The first real project pilot must not be a full multi-week autonomous rewrite.
+### Milestone 3 — Universal ASC v2.2: Professional Operator Console + Real-Project Safety (COMPLETED & VERIFIED)
+
+Proved:
+1. **Interactive Operator Console**: Running `asc` without arguments opens a rich terminal console (Textual/Rich) with project telemetry, DAG progress, runtime health, and interactive REPL commands.
+2. **Subcommands & Flags**: `asc doctor`, `asc status [--watch]`, `asc run`, `asc resume`, `asc logs`, `asc validate`, `asc --version`, `asc --help`.
+3. **Real-Project Git Safety**: Pre-execution dirty-tree check (fails closed if repository is uncommitted/dirty), scoped staging (only stages task delta files; no broad `git add .`), and safe attempt delta rollback on failure.
+4. **Project Execution Mutual Exclusion**: `<repo>/.git/asc/lock` guards against concurrent ASC runs with automatic stale PID recovery.
+5. **Safe State Location**: State persists in `<repo>/.git/asc/asc.db` by default so running ASC does not create untracked `.asc/` files in user projects.
+6. **Scheduler `RUNNING` State Fix**: Corrected DAG evaluation so active tasks report `RUNNING` instead of prematurely reporting `BLOCKED`.
+7. **Heartbeat Event Streaming**: Background executor emits periodic heartbeats to prevent UI freeze during long OMP runs.
+8. **Separate Timeouts**: Explicit `execution_timeout` (for OMP) and `verification_timeout` (for deterministic verification).
+
+---
+
+### Milestone 4 — Controlled Real-Project Pilot (PLANNED)
+
+Target: Run a bounded real-project mission on a real software repository (e.g. InboxShield-AI) after establishing clean baseline and safety boundaries.
+
+1. Bounded task scope (1-2 isolated tasks).
+2. Clean baseline validation.
+3. Live console observation.
+4. Verified deterministic completion.
 
 ---
 

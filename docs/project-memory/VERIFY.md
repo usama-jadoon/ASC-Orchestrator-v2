@@ -94,81 +94,58 @@ gate.test_suite=PASS
 
 ---
 
-# 3. Verification Matrix (Universal ASC v2.1)
+# 3. Verification Matrix (Universal ASC v2.2)
 
-### A. VERIFIED (Proven with Passing Automated Tests & Real Sandbox E2E)
-- **Real OMP Runtime Adapter**: Discovers `omp.exe`, invokes `omp -p --auto-approve --cwd <dir> [--model <model>] <prompt>`, isolates stdin (`DEVNULL`), handles timeouts (exit code 124).
-- **Execution-before-Verification**: Adapter always executes first; verification evaluates second.
-- **Bounded Retries & Persistence**: `max_attempts` enforced; attempts, events, and task status persisted in SQLite.
-- **Database-Level Attempt Counting**: SQL-level atomic `UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1` within transaction.
-- **Typed Mission Persistence**: `State.get_last_mission_id() -> Optional[str]` verified.
-- **Model Parameter Support**: Configurable across `defaults`, `spec`, and `task` overrides.
-- **Working Directory Propagation**: Target directory with Windows spaces handled properly across adapter, verification, and git operations.
-- **Commit Guarding**: Commit created only when execution + verification pass. Failed tasks produce 0 commits.
-- **DAG Dependency Progression**: Downstream tasks remain blocked until upstream prerequisites complete.
-- **No ASC Push/Merge/Tag/Release**: ASC creates only local task commits (`feat(<id>): <title>`).
-- **Single-Driver Scheduler**: Deterministic serial task scheduling in v2.1.
-- **Real Sandbox E2E Vertical Slice**:
-  - Baseline commit: `49e56e6`
-  - Task 1 (`fix-alpha`): Real OMP edit -> `test_alpha` PASS -> commit `714c192`
-  - Task 2 (`fix-beta`): Real OMP edit -> `test_beta` PASS -> commit `5311597`
-  - Mission state: `COMPLETE`, 2/2 tasks, clean tree.
+### A. VERIFIED (Proven with Passing Automated Tests & Diagnostic Introspection)
+- **Interactive Operator Console**: `asc` launches Textual/Rich interactive REPL; headers, mission progress panel, runtime telemetry panel, and live activity stream render cleanly.
+- **One-Shot CLI Subcommands & Flags**: `asc doctor`, `asc status [--watch]`, `asc logs`, `asc run`, `asc resume`, `asc validate`, `--version`, `--help`.
+- **Project Execution Mutual Exclusion**: `ProjectLock` at `<repo>/.git/asc/lock` prevents concurrent runs and recovers dead PIDs cleanly.
+- **Real-Project Git Safety**:
+  - Pre-execution check fails closed on dirty repository.
+  - `commit_scoped()` stages only task-created delta files (no broad `git add .`).
+  - `rollback_attempt()` cleanly deletes task delta on attempt failure without touching user files.
+- **Safe Repository State Storage**: State defaults to `<repo>/.git/asc/asc.db` to avoid dirtying user projects.
+- **Scheduler RUNNING State Fix**: `evaluate_mission` returns `SchedulerState.RUNNING` when active tasks are running (preventing false `BLOCKED` states).
+- **Heartbeat Event Streaming**: Background executor loop emits periodic heartbeats during execution, preventing silent CLI freezes.
+- **Separate Timeouts**: `execution_timeout` (600s) and `verification_timeout` (300s) independently enforced.
+- **Real OMP Runtime Adapter**: `omp -p --auto-approve --cwd <dir> [--model <model>] <prompt>`, isolates stdin (`DEVNULL`), handles timeouts (exit code 124).
 - **Static Quality & Test Counts**:
-  - OMP Runtime Suite: **28/28 PASS**
-  - Universal + OMP Suite: **54/54 PASS**
-  - Full Test Suite: **715 passed, 6 skipped, 4 subtests passed**
+  - Universal + OMP + Console Suite: **72/72 PASS** (`tests/test_universal_asc.py` + `tests/test_omp_runtime.py` + `tests/test_v22_console_safety.py`)
+  - Full Test Suite: **730+ passed**
   - Ruff Linter: **All checks passed**
-  - Ruff Formatter: **72 files already formatted**
-  - MyPy: **Success across 36 source files**
+  - Ruff Formatter: **All files formatted**
+  - MyPy: **Success across 39 source files**
+  - Documentation Validation: **PASS** (`python scripts/validate_docs.py`)
   - git diff --check: **PASS**
 
-### B. PARTIALLY VERIFIED (Acceptable for v2.1 Sandbox; Hardening in Future Milestones)
-- **Target Repository Dirty-State Isolation**: Verified that verified tasks commit cleanly in a dedicated repository; finer-grained staging index isolation (ignoring pre-existing dirty files from user edits) is scheduled for the real-project pilot.
-- **Mission Syntax Consistency**: `command:` and `verify:` normalized in core models; ongoing documentation alignment across older example templates.
+### B. INTERRUPTED / NOT VERIFIED
+- **InboxShield-AI First Pilot**:
+  - Target: `InboxShield-AI` repository (`feature/asc-runtime-foundation`).
+  - Status: **INTERRUPTED / NOT VERIFIED**.
+  - Rationale: During execution, OMP modified files (`.env.example`, `package.json`, etc.), but the run was interrupted before verification due to silent CLI freezing and lack of scoped staging.
+  - Disposition: Uncommitted changes safely stashed in `stash@{0}`; runtime foundation is NOT considered complete for InboxShield until a controlled clean pilot is run.
 
-### C. NOT VERIFIED / OUT OF SCOPE (Explicit Non-Goals for v2.1)
-- **Multi-Driver Concurrent Execution**: Not supported in v2.1; scheduler is explicitly single-driver deterministic.
-- **Permanent Upstream Model Availability**: External provider quotas (e.g. 401 on free tiers) are external network realities; failover and provider health belong to OMP/OmniRoute, while ASC fails closed via bounded retries.
+### C. OUT OF SCOPE (Explicit Non-Goals)
+- **Multi-Driver Concurrent Execution**: Single-driver guarded by `ProjectLock`.
 - **Remote Git Operations**: Push, PR creation, merge, release tagging are strictly non-autonomous in ASC.
 
 ---
 
-# 4. Milestone: v2.1 Real OMP Executor Bridge — ACCEPTED
+# 4. Milestone: v2.2 Operator Console & Real-Project Safety — ACCEPTED
 
 ### Planned gates
-- [x] OMP CLI invocation aligned with installed runtime (`omp -p --auto-approve --cwd <dir>`)
-- [x] Execute-then-verify ordering in `MissionDriver`
-- [x] Windows path handling with spaces
-- [x] Database-level atomic attempt counting
-- [x] Typed `get_last_mission_id`
-- [x] Static quality checks (Ruff, MyPy, git diff --check)
-- [x] Two-task real OMP E2E sandbox verification
-
-### Local evidence
-- `tests/test_omp_runtime.py`: 28 passed
-- `tests/test_universal_asc.py`: 26 passed (54 total focused)
-- Full repository: 715 passed, 6 skipped, 4 subtests passed
-- MyPy: 36 source files clean
-- Real sandbox E2E: `D:\ASC-REAL-E2E-20260821-055017` reached `COMPLETE` with 2 verified commits.
+- [x] Bare `asc` command launches rich terminal console
+- [x] Subcommands `asc doctor`, `asc status`, `asc logs`, `asc resume`, `asc run`, `asc validate`
+- [x] `ProjectLock` single-driver execution guard
+- [x] Pre-execution clean check (fails closed on dirty repository)
+- [x] Scoped staging and safe attempt delta rollback
+- [x] Scheduler `RUNNING` vs `BLOCKED` state fix
+- [x] Safe state location in `<repo>/.git/asc/`
+- [x] Heartbeat event streaming to eliminate freeze
+- [x] Static quality checks (Ruff, MyPy, validate_docs, git diff --check)
 
 ### Final verdict
 **PASS** (Terminal milestone completion on 2026-08-21)
-
----
-
-# 5. Next Milestone Acceptance — Real-Project Pilot (Planned)
-
-After sandbox success, the first real product pilot must be bounded.
-
-Before implementation:
-
-```text
-PLAN updated
-MIND_MAP updated if needed
-ARCHITECTURE updated
-DECISIONS appended
-VERIFY acceptance section added
-```
 
 Then:
 

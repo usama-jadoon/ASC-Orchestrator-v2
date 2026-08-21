@@ -1,4 +1,4 @@
-"""Universal ASC v2.0.0 - Models module.
+"""Universal ASC v2.2.0 - Models module.
 
 Core data structures for the Universal ASC orchestrator.
 """
@@ -23,6 +23,7 @@ class SchedulerState(Enum):
     """Mission scheduler state."""
 
     RUNNABLE = "RUNNABLE"
+    RUNNING = "RUNNING"
     COMPLETE = "COMPLETE"
     BLOCKED = "BLOCKED"
 
@@ -68,6 +69,8 @@ class Task:
     executor: Optional[str] = None
     working_directory: Optional[str] = None
     model: Optional[str] = None
+    execution_timeout: Optional[int] = None
+    commit_paths: Optional[List[str]] = None
 
 
 @dataclass
@@ -75,6 +78,7 @@ class MissionDefaults:
     """Default settings for mission execution."""
 
     max_attempts: int = 3
+    execution_timeout: int = 600
     verification_timeout: int = 300
     executor: str = "omp"
     working_directory: Optional[str] = None
@@ -92,6 +96,8 @@ class MissionSpec:
     executor: Optional[str] = None
     working_directory: Optional[str] = None
     model: Optional[str] = None
+    execution_timeout: Optional[int] = None
+    verification_timeout: Optional[int] = None
 
 
 @dataclass

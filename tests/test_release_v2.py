@@ -23,7 +23,7 @@ class TestReleaseV2Constants(unittest.TestCase):
     """Verify the fixed constants for v2 release."""
 
     def test_production_version(self) -> None:
-        self.assertEqual(PRODUCTION_VERSION, "2.0.0")
+        self.assertEqual(PRODUCTION_VERSION, "2.2.0")
 
     def test_project_name(self) -> None:
         self.assertEqual(PROJECT_NAME, "asc-orchestrator")
@@ -32,7 +32,7 @@ class TestReleaseV2Constants(unittest.TestCase):
         self.assertEqual(CONSOLE_ENTRY_POINT, "asc.cli:main")
 
     def test_runtime_modules_count(self) -> None:
-        self.assertEqual(len(RUNTIME_MODULES), 11)
+        self.assertEqual(len(RUNTIME_MODULES), 15)
 
 
 class TestReleaseV2Dataclass(unittest.TestCase):
@@ -45,7 +45,7 @@ class TestReleaseV2Dataclass(unittest.TestCase):
 
     def test_report_all_pass(self) -> None:
         report = ReleaseReport(
-            version="2.0.0",
+            version="2.2.0",
             gates=(ReleaseGate("a", True), ReleaseGate("b", True)),
         )
         self.assertTrue(report.passed)
@@ -62,13 +62,13 @@ class TestReleaseV2Verify(unittest.TestCase):
             report.passed,
             f"Expected PASS but got {[g.name for g in report.failed_gates()]}",
         )
-        self.assertEqual(report.version, "2.0.0")
+        self.assertEqual(report.version, "2.2.0")
 
     def test_render_format(self) -> None:
         report = verify(REPO_ROOT)
         lines = list(render(report))
         self.assertEqual(lines[0], "release=PASS")
-        self.assertEqual(lines[1], "version=2.0.0")
+        self.assertEqual(lines[1], "version=2.2.0")
         self.assertIn("gate.version=PASS", lines)
 
 
