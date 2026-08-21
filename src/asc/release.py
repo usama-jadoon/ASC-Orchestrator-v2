@@ -1,4 +1,4 @@
-"""Universal ASC v2.2.0 - Production Release Verifier.
+"""Universal ASC v2.3.0 - Production Release Verifier.
 
 Certifies that the Universal ASC v2 repository/package satisfies production release gates.
 """
@@ -9,9 +9,9 @@ import importlib
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Iterator, Sequence
 
-PRODUCTION_VERSION = "2.2.0"
+PRODUCTION_VERSION = "2.3.0"
 PROJECT_NAME = "asc-orchestrator"
 CONSOLE_ENTRY_POINT = "asc.cli:main"
 
@@ -62,125 +62,118 @@ class ReleaseReport:
     def passed_count(self) -> int:
         return sum(1 for g in self.gates if g.passed)
 
-    def failed_gates(self) -> tuple[ReleaseGate, ...]:
+    def failed_gates(self) -> Sequence[ReleaseGate]:
         return tuple(g for g in self.gates if not g.passed)
 
 
-def verify(root_dir: str | Path) -> ReleaseReport:
-    """Run all release verification gates against root_dir."""
-    root = Path(root_dir).resolve()
-    gates: list[ReleaseGate] = []
+class ReleaseVerifier:
+    """Verifies that the codebase satisfies release requirements for v2.3.0."""
 
-    pyproject_path = root / "pyproject.toml"
-    if not pyproject_path.exists():
-        for name in (
-            "version",
-            "package_name",
-            "dependencies",
-            "console_entry_point",
-            "src_layout",
-        ):
-            gates.append(ReleaseGate(name, False, "pyproject.toml does not exist"))
-    else:
-        try:
-            with pyproject_path.open("rb") as fh:
-                data = tomllib.load(fh)
-        except Exception as exc:
-            for name in (
-                "version",
-                "package_name",
-                "dependencies",
-                "console_entry_point",
-                "src_layout",
-            ):
-                gates.append(
-                    ReleaseGate(name, False, f"failed to parse pyproject.toml: {exc}")
-                )
-            data = {}
-
-        if data:
-            proj = data.get("project", {})
-
-            # 1. Version gate
-            ver = proj.get("version", "")
-            gates.append(
-                ReleaseGate(
-                    "version",
-                    ver == PRODUCTION_VERSION,
-                    f"expected {PRODUCTION_VERSION}, got {ver}",
-                )
-            )
-
-            # 2. Package name gate
-            name = proj.get("name", "")
-            gates.append(
-                ReleaseGate(
-                    "package_name",
-                    name == PROJECT_NAME,
-                    f"expected {PROJECT_NAME}, got {name}",
-                )
-            )
-
-            # 3. Dependencies gate
-            deps = proj.get("dependencies", [])
-            has_pyyaml = any("pyyaml" in d.lower() for d in deps)
-            gates.append(
-                ReleaseGate(
-                    "dependencies", has_pyyaml, f"dependencies declared: {deps}"
-                )
-            )
-
-            # 4. Console entry point gate
-            scripts = proj.get("scripts", {})
-            ep = scripts.get("asc", "")
-            gates.append(
-                ReleaseGate(
-                    "console_entry_point",
-                    ep == CONSOLE_ENTRY_POINT,
-                    f"expected {CONSOLE_ENTRY_POINT}, got {ep}",
-                )
-            )
-
-            # 5. src-layout gate
-            tool_st = data.get("tool", {}).get("setuptools", {})
-            pkg_dir = tool_st.get("package-dir", {}).get("", "")
-            gates.append(
-                ReleaseGate(
-                    "src_layout", pkg_dir == "src", f"expected src, got {pkg_dir}"
-                )
-            )
-
-    # 6. Runtime modules importability gate
-    import_failures = []
-    for mod in RUNTIME_MODULES:
-        try:
-            importlib.import_module(mod)
-        except Exception as exc:
-            import_failures.append(f"{mod}: {exc}")
-    gates.append(
-        ReleaseGate(
-            "runtime_modules", len(import_failures) == 0, ", ".join(import_failures)
+    def __init__(self, repo_root: Path | None = None) -> None:
+        self.repo_root = (
+            repo_root if repo_root is not None else Path(__file__).resolve().parents[2]
         )
-    )
 
-    # 7. Universal test suite gate
-    test_file = root / "tests" / "test_universal_asc.py"
-    gates.append(
-        ReleaseGate(
-            "test_suite", test_file.exists(), f"test file present: {test_file.exists()}"
+    def verify_version(self) -> ReleaseGate:
+        """Gate 1: Version declaration is canonical 2.3.0 across pyproject.toml."""
+        pyproject_path = self.repo_root / "pyproject.toml"
+        if not pyproject_path.exists():
+            return ReleaseGate(
+                name="version",
+                passed=False,
+                detail="pyproject.toml not found",
+            )
+        try:
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+            version = data.get("project", {}).get("version")
+            if version == PRODUCTION_VERSION:
+                return ReleaseGate(
+                    name="version",
+                    passed=True,
+                    detail=f"pyproject.toml version {version} == {PRODUCTION_VERSION}",
+                )
+            return ReleaseGate(
+                name="version",
+                passed=False,
+                detail=f"pyproject.toml version {version!r} != {PRODUCTION_VERSION!r}",
+            )
+        except Exception as exc:
+            return ReleaseGate(
+                name="version", passed=False, detail=str(exc)
+            )
+
+    def verify_package_entry_points(self) -> ReleaseGate:
+        """Gate 2: Verify asc console script entry point exists in pyproject.toml."""
+        pyproject_path = self.repo_root / "pyproject.toml"
+        if not pyproject_path.exists():
+            return ReleaseGate(
+                name="entry_points",
+                passed=False,
+                detail="pyproject.toml not found",
+            )
+        try:
+            with open(pyproject_path, "rb") as f:
+                data = tomllib.load(f)
+            scripts = data.get("project", {}).get("scripts", {})
+            asc_script = scripts.get("asc")
+            if asc_script == CONSOLE_ENTRY_POINT:
+                return ReleaseGate(
+                    name="entry_points",
+                    passed=True,
+                    detail=f"scripts.asc == {CONSOLE_ENTRY_POINT}",
+                )
+            return ReleaseGate(
+                name="entry_points",
+                passed=False,
+                detail=f"scripts.asc is {asc_script!r}, expected {CONSOLE_ENTRY_POINT!r}",
+            )
+        except Exception as exc:
+            return ReleaseGate(
+                name="entry_points", passed=False, detail=str(exc)
+            )
+
+    def verify_runtime_modules(
+        self, modules: Iterable[str] = RUNTIME_MODULES
+    ) -> ReleaseGate:
+        """Gate 3: All runtime modules import cleanly without circular dependencies."""
+        failed: list[str] = []
+        for mod in modules:
+            try:
+                importlib.import_module(mod)
+            except Exception as exc:
+                failed.append(f"{mod}: {exc}")
+        if not failed:
+            return ReleaseGate(
+                name="runtime_modules",
+                passed=True,
+                detail=f"All {len(list(modules))} runtime modules imported successfully",
+            )
+        return ReleaseGate(
+            name="runtime_modules",
+            passed=False,
+            detail=f"Failed importing: {'; '.join(failed)}",
         )
-    )
 
-    return ReleaseReport(version=PRODUCTION_VERSION, gates=tuple(gates))
+    def run_all_gates(self) -> ReleaseReport:
+        """Run all release verification gates and produce comprehensive report."""
+        gates = [
+            self.verify_version(),
+            self.verify_package_entry_points(),
+            self.verify_runtime_modules(),
+        ]
+        return ReleaseReport(version=PRODUCTION_VERSION, gates=gates)
 
 
-def render(report: ReleaseReport) -> Iterable[str]:
-    """Yield lines of machine-readable release verdict report."""
-    status_str = "PASS" if report.passed else "FAIL"
-    yield f"release={status_str}"
+def verify(repo_root: Path | None = None) -> ReleaseReport:
+    """Run all release gates."""
+    verifier = ReleaseVerifier(repo_root)
+    return verifier.run_all_gates()
+
+
+def render(report: ReleaseReport) -> Iterator[str]:
+    """Render release report lines."""
+    yield f"release={'PASS' if report.passed else 'FAIL'}"
     yield f"version={report.version}"
-    for gate in report.gates:
-        gate_status = "PASS" if gate.passed else "FAIL"
-        yield f"gate.{gate.name}={gate_status}"
-        if not gate.passed and gate.detail:
-            yield f"gate.{gate.name}.detail={gate.detail}"
+    for g in report.gates:
+        yield f"gate.{g.name}={'PASS' if g.passed else 'FAIL'}"

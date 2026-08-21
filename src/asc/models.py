@@ -1,7 +1,9 @@
-"""Universal ASC v2.2.0 - Models module.
+"""Universal ASC v2.3.0 - Models module.
 
 Core data structures for the Universal ASC orchestrator.
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -17,6 +19,7 @@ class TaskStatus(Enum):
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
     CANCELLED = "CANCELLED"
+    INTERRUPTED = "INTERRUPTED"
 
 
 class SchedulerState(Enum):
@@ -47,9 +50,37 @@ class VerificationResult:
     stderr: str = ""
     duration: float = 0.0
     success: bool = field(init=False)
+    results: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         self.success = self.exit_code == 0
+
+
+@dataclass
+class StructuredExecutorResult:
+    """Stable structured executor observation for control plane and adapters."""
+
+    executor: str
+    mission_id: Optional[str] = None
+    task_id: Optional[str] = None
+    attempt_number: int = 1
+    session_id: Optional[str] = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    duration: float = 0.0
+    exit_code: int = 0
+    timed_out: bool = False
+    stdout_summary: str = ""
+    stderr_summary: str = ""
+    changed_files: List[str] = field(default_factory=list)
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    log_path: Optional[str] = None
+    error_classification: Optional[str] = None
+
+    @property
+    def success(self) -> bool:
+        return self.exit_code == 0 and not self.timed_out
 
 
 @dataclass
@@ -62,6 +93,7 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     depends_on: List[str] = field(default_factory=list)
     command: Optional[VerificationCommand] = None
+    commands: List[VerificationCommand] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
@@ -71,6 +103,13 @@ class Task:
     model: Optional[str] = None
     execution_timeout: Optional[int] = None
     commit_paths: Optional[List[str]] = None
+
+    def __post_init__(self):
+        # Synchronize command and commands
+        if self.command and not self.commands:
+            self.commands = [self.command]
+        elif self.commands and not self.command:
+            self.command = self.commands[0]
 
 
 @dataclass
@@ -83,6 +122,7 @@ class MissionDefaults:
     executor: str = "omp"
     working_directory: Optional[str] = None
     model: Optional[str] = None
+    system_changes: str = "DENIED"
 
 
 @dataclass
@@ -98,6 +138,7 @@ class MissionSpec:
     model: Optional[str] = None
     execution_timeout: Optional[int] = None
     verification_timeout: Optional[int] = None
+    system_changes: str = "DENIED"
 
 
 @dataclass
@@ -111,6 +152,10 @@ class Mission:
     updated_at: float
     executor: Optional[str] = None
     working_directory: Optional[str] = None
+    model: Optional[str] = None
+    execution_timeout: Optional[int] = None
+    verification_timeout: Optional[int] = None
+    max_attempts: Optional[int] = None
 
     @classmethod
     def from_row(cls, row) -> "Mission":
@@ -126,6 +171,14 @@ class Mission:
             working_directory=row["working_directory"]
             if "working_directory" in keys
             else None,
+            model=row["model"] if "model" in keys else None,
+            execution_timeout=row["execution_timeout"]
+            if "execution_timeout" in keys
+            else None,
+            verification_timeout=row["verification_timeout"]
+            if "verification_timeout" in keys
+            else None,
+            max_attempts=row["max_attempts"] if "max_attempts" in keys else None,
         )
 
 
@@ -141,6 +194,12 @@ class AttemptRecord:
     stdout: str = ""
     stderr: str = ""
     timestamp: float = field(default_factory=lambda: 0.0)
+    mission_id: Optional[str] = None
+    duration: float = 0.0
+    log_path: Optional[str] = None
+
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
 
 
 @dataclass
@@ -160,3 +219,9 @@ class AgentResult:
 
     output: str
     exit_code: int = 0
+    duration: float = 0.0
+    timed_out: bool = False
+    stdout: str = ""
+    stderr: str = ""
+    changed_files: List[str] = field(default_factory=list)
+    log_path: Optional[str] = None

@@ -1,4 +1,4 @@
-"""Universal ASC v2.2.0 - Repository Inspector & Git Safety Module.
+"""Universal ASC v2.3.0 - Repository Inspector & Git Safety Module.
 
 Provides Git repository introspection, porcelain status inspection,
 scoped staging, dirty-state protection, and safe attempt rollback.
@@ -6,6 +6,7 @@ scoped staging, dirty-state protection, and safe attempt rollback.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,9 +46,7 @@ class Repository:
         self.path = Path(path).resolve()
 
     def _run(self, cmd: List[str]) -> str:
-        """
-        Execute git command and return stdout stripped.
-        """
+        """Execute git command and return stdout stripped."""
         result = subprocess.run(
             cmd, cwd=self.path, capture_output=True, text=True, check=True
         )
@@ -82,9 +81,7 @@ class Repository:
         return self.get_root_dir().name
 
     def get_head_commit(self) -> str:
-        """
-        Get current HEAD commit hash.
-        """
+        """Get current HEAD commit hash."""
         if not self.is_git_repo():
             return ""
         try:
@@ -93,9 +90,7 @@ class Repository:
             return ""
 
     def get_current_branch(self) -> str:
-        """
-        Get current branch name.
-        """
+        """Get current branch name."""
         if not self.is_git_repo():
             return ""
         try:
@@ -104,9 +99,7 @@ class Repository:
             return ""
 
     def get_porcelain_status(self) -> GitStatus:
-        """
-        Inspect full porcelain status of repository.
-        """
+        """Inspect full porcelain status of repository."""
         if not self.is_git_repo():
             return GitStatus()
 
@@ -185,13 +178,13 @@ class Repository:
 
         Args:
             message: Git commit message
-            paths: Specific file paths created/modified by this task
+            paths: Specific file paths created/modified by this task (task delta)
             commit_paths_filter: Optional allowable commit scope from task spec
         """
         if not self.is_git_repo():
             return None
 
-        # If paths not explicitly provided, discover current modified/untracked files
+        # If paths not explicitly provided, discover current dirty files
         files_to_stage = paths if paths is not None else self.get_dirty_files()
         if not files_to_stage:
             return None
@@ -205,7 +198,7 @@ class Repository:
                     f"Changes detected outside allowed task commit_paths: {disallowed}"
                 )
 
-        # Stage specific files
+        # Stage ONLY specific task files
         for f in files_to_stage:
             target_file = self.path / f
             if target_file.exists():
@@ -224,7 +217,7 @@ class Repository:
                     check=False,
                 )
 
-        # Commit
+        # Commit staged files
         res = subprocess.run(
             ["git", "commit", "-m", message],
             cwd=self.path,
@@ -244,28 +237,34 @@ class Repository:
         """
         Roll back only task-created changes after a failed attempt.
         Never runs broad 'git reset --hard' or 'git clean -fd' on the repository.
+        Never recursively deletes entire unknown directories.
         """
         if not self.is_git_repo() or not delta_paths:
             return
+
+        status = self.get_porcelain_status()
+        untracked_set = set(status.untracked)
+        modified_or_staged = set(status.modified + status.staged)
 
         for path_str in delta_paths:
             p = self.path / path_str
             if not p.exists():
                 continue
 
-            # If it was untracked (new file), delete it
-            status = self.get_porcelain_status()
-            if path_str in status.untracked:
+            if path_str in untracked_set:
                 try:
                     if p.is_file():
                         p.unlink(missing_ok=True)
-                    elif p.is_dir():
-                        import shutil
-
-                        shutil.rmtree(p, ignore_errors=True)
+                        # Clean up empty parent directory safely if inside repo
+                        parent = p.parent
+                        if parent != self.path and parent.exists():
+                            try:
+                                os.rmdir(parent)  # Only succeeds if directory is completely empty
+                            except OSError:
+                                pass
                 except Exception:
                     pass
-            elif path_str in status.modified or path_str in status.staged:
+            elif path_str in modified_or_staged:
                 # Checkout tracked file back to HEAD
                 subprocess.run(
                     ["git", "checkout", "HEAD", "--", path_str],
