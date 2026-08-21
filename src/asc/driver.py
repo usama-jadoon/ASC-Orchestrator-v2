@@ -1,7 +1,8 @@
-"""Universal ASC v2.2.0 - Mission Driver.
+"""Universal ASC v2.3.0 - Mission Driver.
 
-Core execution loop for mission orchestration with event streaming,
-project locking, scoped git staging, and safe retry rollback.
+Core execution loop for mission orchestration with centralized repository preflight,
+strict path precedence, composite task identity, stale execution reconciliation,
+scoped git delta commits, and multi-command verification.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .adapters.mock import MockAdapter
 from .adapters.omp import OMPAdapter
@@ -25,6 +26,25 @@ from .models import (
 from .repo import Repository
 from .state import State
 from .verifier import Verifier
+
+
+class TaskExecutionOutcome(tuple):
+    """Execution outcome tuple supporting both (success, exit_code) and .delta access."""
+
+    delta: List[str]
+
+    def __new__(cls, success: bool, exit_code: int, delta: Optional[List[str]] = None):
+        instance = super().__new__(cls, (success, exit_code))
+        instance.delta = delta or []
+        return instance
+
+    @property
+    def success(self) -> bool:
+        return self[0]
+
+    @property
+    def exit_code(self) -> int:
+        return self[1]
 
 
 def build_adapter(executor: str, timeout: int = 600) -> Any:
@@ -48,15 +68,16 @@ class MissionDriver:
 
     Execution lifecycle:
     1. Acquire ProjectLock
-    2. Load mission + tasks
-    3. Evaluate scheduler state (RUNNABLE / COMPLETE / BLOCKED)
-    4. While RUNNABLE: execute task -> verify -> (retry with safe delta rollback on failure) ->
-       commit only after verification PASS -> mark COMPLETED
-    5. Release ProjectLock and exit
+    2. Centralized repository preflight (clean working tree verification)
+    3. Reconcile stale interrupted tasks if resuming from crash
+    4. Evaluate scheduler state (RUNNABLE / COMPLETE / BLOCKED)
+    5. Execute tasks with retry & non-destructive rollback
+    6. Multi-command verification & strict task delta commit
+    7. Release ProjectLock and exit
     """
 
     def __init__(self, *args, **kwargs):
-        """Initialize driver with flexible arguments."""
+        """Initialize driver with strict path precedence and options."""
         self.events = EventEmitter()
         if "event_listener" in kwargs and kwargs["event_listener"]:
             self.events.subscribe(kwargs["event_listener"])
@@ -85,7 +106,8 @@ class MissionDriver:
             )
 
             self.executor = kwargs.get("executor") or mission_executor or "omp"
-            self.working_directory = kwargs.get("working_directory") or mission_wd
+            self.cli_cwd = kwargs.get("working_directory") or kwargs.get("cwd")
+            self.working_directory = self.cli_cwd or mission_wd
             self.spec_working_directory = self.working_directory
 
             if "adapter" in kwargs and kwargs["adapter"] is not None:
@@ -102,18 +124,30 @@ class MissionDriver:
             self.model = kwargs.get("model")
         else:
             spec = kwargs.get("spec") or (args[0] if args else None)
-            db_path = kwargs.get("db_path") or (args[1] if len(args) > 1 else None)
             adapter = kwargs.get("adapter") or None
             timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 600)
 
-            self.state = State(db_path, cwd=kwargs.get("working_directory") or ".")
+            # Resolve path precedence
+            cli_override_cwd = kwargs.get("working_directory") or kwargs.get("cwd")
+            spec_wd = getattr(spec, "working_directory", None) if spec else None
+            spec_defaults = getattr(spec, "defaults", None) if spec else None
+            default_wd = (
+                getattr(spec_defaults, "working_directory", None)
+                if spec_defaults
+                else None
+            )
+
+            effective_wd = cli_override_cwd or spec_wd or default_wd or "."
+            self.working_directory = effective_wd
+            self.spec_working_directory = spec_wd or default_wd
+
+            db_path = kwargs.get("db_path") or (args[1] if len(args) > 1 else None)
+            self.state = State(db_path, cwd=effective_wd)
             self.db_path = str(self.state.db_path)
             self.timeout = timeout
-            self.working_directory = kwargs.get("working_directory")
 
-            # Resolve executor and timeouts from spec/defaults
+            # Resolve executor and timeouts
             spec_executor = getattr(spec, "executor", None) if spec else None
-            spec_defaults = getattr(spec, "defaults", None) if spec else None
             default_executor = (
                 getattr(spec_defaults, "executor", None) if spec_defaults else None
             )
@@ -147,27 +181,16 @@ class MissionDriver:
                 else build_adapter(self.executor, self.execution_timeout)
             )
 
-            if spec_defaults:
-                self._max_attempts = getattr(spec_defaults, "max_attempts", 3)
-                spec_wd = getattr(spec_defaults, "working_directory", None)
-                if spec_wd:
-                    self.spec_working_directory = spec_wd
-
-            spec_wd = getattr(spec, "working_directory", None) if spec else None
-            if spec_wd:
-                self.spec_working_directory = spec_wd
-
+            self._max_attempts = kwargs.get("max_attempts") or (
+                getattr(spec_defaults, "max_attempts", 3) if spec_defaults else 3
+            )
             self.model = (
                 kwargs.get("model")
                 or (getattr(spec, "model", None) if spec else None)
                 or (getattr(spec_defaults, "model", None) if spec_defaults else None)
             )
 
-            self.repository = Repository(
-                self.working_directory
-                or getattr(self, "spec_working_directory", None)
-                or "."
-            )
+            self.repository = Repository(self.working_directory)
 
             if spec:
                 self.state.save_mission(spec)
@@ -196,9 +219,46 @@ class MissionDriver:
         self.events.emit(event)
         self.state.record_event(event.to_dict())
 
+    def _reconcile_stale_tasks(self) -> None:
+        """
+        Reconcile tasks that were left in RUNNING status due to a process crash or interruption.
+        Restores them to INTERRUPTED (runnable) if attempts remain, preserving evidence.
+        """
+        if not self.mission_id:
+            return
+        tasks = self.state.get_tasks(self.mission_id)
+        for t in tasks:
+            if t.status == TaskStatus.RUNNING:
+                max_att = self._get_max_attempts(t)
+                attempts = self.state.get_attempts(t.id, mission_id=self.mission_id)
+                current_att_count = len(attempts)
+
+                self._emit(
+                    EventType.TASK_FAILED,
+                    task_id=t.id,
+                    payload={
+                        "reason": "Process interruption detected; reconciling stale RUNNING state",
+                        "attempt_count": current_att_count,
+                    },
+                    message=f"Reconciling interrupted task '{t.id}'",
+                )
+
+                if current_att_count < max_att:
+                    new_status = TaskStatus.INTERRUPTED
+                else:
+                    new_status = TaskStatus.FAILED
+
+                self.state.update_task_status(
+                    t.id,
+                    new_status,
+                    mission_id=self.mission_id,
+                    completed_at=time.time(),
+                )
+                t.status = new_status
+
     def run(self, mission_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Execute mission protected by project execution lock.
+        Execute mission protected by project lock and centralized repository preflight.
         """
         if mission_id:
             self.mission_id = mission_id
@@ -237,12 +297,31 @@ class MissionDriver:
             raise
 
         try:
+            # Centralized Repository Preflight Safety Invariant
+            if repo.is_git_repo() and not repo.is_clean():
+                dirty_files = repo.get_dirty_files()
+                err_msg = (
+                    f"Repository preflight check failed: target repository '{repo.path}' "
+                    f"has {len(dirty_files)} uncommitted/untracked change(s): {dirty_files[:5]}"
+                )
+                self._emit(
+                    EventType.MISSION_BLOCKED,
+                    payload={"error": err_msg, "dirty_files": dirty_files},
+                )
+                result["error"] = err_msg
+                result["final_status"] = "BLOCKED"
+                raise RuntimeError(err_msg)
+
+            # Reconcile any stale RUNNING tasks from previous interrupted executions
+            self._reconcile_stale_tasks()
+
             self._emit(
                 EventType.MISSION_STARTED,
                 payload={
                     "mission_id": self.mission_id,
                     "executor": self.executor,
                     "model": self.model,
+                    "working_directory": str(repo.path),
                 },
             )
             self.state.update_mission_status(self.mission_id or "", "RUNNING")
@@ -262,17 +341,22 @@ class MissionDriver:
                 self._emit(
                     EventType.TASK_READY, task_id=task.id, payload={"title": task.title}
                 )
-                is_success, exit_code = self._execute_task_with_retry(task)
+                exec_outcome = self._execute_task_with_retry(task)
+                is_success, exit_code = exec_outcome[0], exec_outcome[1]
+                task_delta = getattr(exec_outcome, "delta", [])
 
                 if is_success:
-                    self._complete_task(task)
+                    self._complete_task(task, task_delta)
                     result["tasks_completed"] = int(result["tasks_completed"]) + 1
                     if task.commit_sha:
                         result["git_commits"].append(task.commit_sha)
                 else:
                     task.status = TaskStatus.FAILED
                     self.state.update_task_status(
-                        task.id, TaskStatus.FAILED, exit_code=exit_code
+                        task.id,
+                        TaskStatus.FAILED,
+                        exit_code=exit_code,
+                        mission_id=self.mission_id,
                     )
                     self._emit(
                         EventType.TASK_FAILED,
@@ -315,18 +399,25 @@ class MissionDriver:
             return int(task.metadata["max_attempts"])
         return getattr(self, "_max_attempts", 3)
 
-    def _execute_task_with_retry(self, task: Task) -> tuple[bool, int]:
-        """Execute task through adapter then verify; retry with safe delta rollback on failure."""
+    def _execute_task_with_retry(self, task: Task) -> TaskExecutionOutcome:
+        """
+        Execute task through adapter then verify with multi-command support.
+        Retries with safe attempt delta rollback on failure.
+        """
         max_attempts = self._get_max_attempts(task)
         attempt = 0
         last_exit_code = 1
+        last_delta: List[str] = []
 
-        repo_dir = (
-            task.working_directory
-            or self.working_directory
-            or getattr(self, "spec_working_directory", None)
-        )
-        task_repo = Repository(repo_dir) if repo_dir else self.repository
+        if task.working_directory:
+            task_repo = Repository(task.working_directory)
+            effective_cwd = task.working_directory
+        elif self.working_directory and self.working_directory != ".":
+            task_repo = Repository(self.working_directory)
+            effective_cwd = self.working_directory
+        else:
+            task_repo = self.repository
+            effective_cwd = str(self.repository.path)
 
         task_model = (
             task.model or getattr(self, "model", None) or os.environ.get("OMP_MODEL")
@@ -344,19 +435,24 @@ class MissionDriver:
             )
 
         context = {
-            "working_directory": repo_dir or ".",
+            "working_directory": effective_cwd,
             "model": task_model,
             "execution_timeout": exec_timeout,
             "heartbeat_callback": heartbeat,
         }
 
         while attempt < max_attempts:
-            attempt = self.state.increment_attempt_count(task.id)
+            attempt = self.state.increment_attempt_count(
+                task.id, mission_id=self.mission_id
+            )
 
             task.status = TaskStatus.RUNNING
             task.started_at = time.time()
             self.state.update_task_status(
-                task.id, TaskStatus.RUNNING, started_at=task.started_at
+                task.id,
+                TaskStatus.RUNNING,
+                started_at=task.started_at,
+                mission_id=self.mission_id,
             )
 
             self._emit(
@@ -395,6 +491,8 @@ class MissionDriver:
             exec_exit = getattr(adapter_res, "exit_code", 1)
             exec_stdout = getattr(adapter_res, "stdout", "")
             exec_stderr = getattr(adapter_res, "stderr", "")
+            exec_duration = getattr(adapter_res, "duration", 0.0)
+            exec_log_path = getattr(adapter_res, "log_path", None)
             exec_success = exec_exit == 0
 
             if exec_success:
@@ -423,6 +521,9 @@ class MissionDriver:
                 stdout=exec_stdout,
                 stderr=exec_stderr,
                 timestamp=time.time(),
+                mission_id=self.mission_id,
+                duration=exec_duration,
+                log_path=exec_log_path,
             )
 
             # Discover delta files produced by this attempt
@@ -430,6 +531,7 @@ class MissionDriver:
                 set(task_repo.get_dirty_files()) if task_repo.is_git_repo() else set()
             )
             task_delta = sorted(current_dirty - baseline_dirty)
+            last_delta = task_delta
             if task_delta:
                 self._emit(
                     EventType.GIT_CHANGESET_DETECTED,
@@ -439,7 +541,7 @@ class MissionDriver:
 
             if not exec_success:
                 last_exit_code = exec_exit
-                # Rollback only attempt delta files
+                # Rollback only attempt delta files safely
                 if task_delta:
                     task_repo.rollback_attempt(task_delta)
                 if attempt < max_attempts:
@@ -450,25 +552,31 @@ class MissionDriver:
                     )
                 continue
 
-            # Stage 2: VERIFY if task has verification command
-            if task.command and task.command.command:
-                effective_cwd = str(repo_dir or (task_repo.path if task_repo else "."))
+            # Stage 2: VERIFY with multi-command support
+            verify_commands = task.commands or ([task.command] if task.command else [])
+            if verify_commands:
                 self._emit(
                     EventType.VERIFICATION_STARTED,
                     task_id=task.id,
-                    payload={"command": task.command.command},
+                    payload={
+                        "commands": [c.command for c in verify_commands if c],
+                        "count": len(verify_commands),
+                    },
                 )
+
                 try:
                     vr = self.verifier.run_verification(
-                        [task.command],
+                        verify_commands,
                         cwd=effective_cwd,
                         timeout=verify_timeout,
                     )
                 except TypeError:
+                    # Backward compatibility with simple custom test verifiers
                     vr = self.verifier.run_verification(
-                        [task.command],
+                        verify_commands,
                         cwd=effective_cwd,
                     )
+
                 verify_exit = vr.exit_code
                 verify_stdout = vr.stdout
                 verify_stderr = vr.stderr
@@ -481,13 +589,18 @@ class MissionDriver:
                     stdout=verify_stdout,
                     stderr=verify_stderr,
                     timestamp=time.time(),
+                    mission_id=self.mission_id,
+                    duration=getattr(vr, "duration", 0.0),
                 )
 
                 if vr.success:
                     self._emit(
                         EventType.VERIFICATION_PASSED,
                         task_id=task.id,
-                        payload={"attempt": attempt},
+                        payload={
+                            "attempt": attempt,
+                            "duration": getattr(vr, "duration", 0.0),
+                        },
                     )
                 else:
                     self._emit(
@@ -512,45 +625,60 @@ class MissionDriver:
                     continue
 
             # Execution + verification passed!
-            return True, 0
+            return TaskExecutionOutcome(True, 0, task_delta)
 
         # Exhausted attempts
         task.status = TaskStatus.FAILED
         self.state.update_task_status(
-            task.id, TaskStatus.FAILED, exit_code=last_exit_code
+            task.id,
+            TaskStatus.FAILED,
+            exit_code=last_exit_code,
+            mission_id=self.mission_id,
         )
-        return False, last_exit_code
+        return TaskExecutionOutcome(False, last_exit_code, last_delta)
 
-    def _complete_task(self, task: Task) -> None:
-        """Mark task as completed and commit scoped changes."""
+    def _complete_task(
+        self, task: Task, task_delta: Optional[List[str]] = None
+    ) -> None:
+        """Mark task as completed and commit only task-owned delta."""
         task.status = TaskStatus.COMPLETED
         task.completed_at = time.time()
         self.state.update_task_status(
-            task.id, TaskStatus.COMPLETED, completed_at=task.completed_at, exit_code=0
+            task.id,
+            TaskStatus.COMPLETED,
+            completed_at=task.completed_at,
+            exit_code=0,
+            mission_id=self.mission_id,
         )
 
-        repo_dir = (
-            task.working_directory
-            or self.working_directory
-            or getattr(self, "spec_working_directory", None)
-        )
-        task_repo = Repository(repo_dir) if repo_dir else self.repository
+        if task.working_directory:
+            task_repo = Repository(task.working_directory)
+        elif self.working_directory and self.working_directory != ".":
+            task_repo = Repository(self.working_directory)
+        else:
+            task_repo = self.repository
 
         if task_repo.has_changes():
             commit_msg = f"feat({task.id}): {task.title}"
             self._emit(
                 EventType.GIT_COMMIT_STARTED,
                 task_id=task.id,
-                payload={"message": commit_msg},
+                payload={"message": commit_msg, "paths": task_delta or []},
             )
             sha = task_repo.commit_scoped(
                 commit_msg,
+                paths=task_delta
+                if (task_delta is not None and len(task_delta) > 0)
+                else None,
                 commit_paths_filter=task.commit_paths,
             )
             task.commit_sha = sha
             if sha:
                 self.state.update_task_status(
-                    task.id, TaskStatus.COMPLETED, commit_sha=sha
+                    task.id,
+                    TaskStatus.COMPLETED,
+                    commit_sha=sha,
+                    mission_id=self.mission_id,
                 )
                 self._emit(
                     EventType.GIT_COMMIT_CREATED,
@@ -568,7 +696,9 @@ class MissionDriver:
     def _block_task(self, task: Task) -> None:
         """Mark task as blocked."""
         task.status = TaskStatus.BLOCKED
-        self.state.update_task_status(task.id, TaskStatus.BLOCKED)
+        self.state.update_task_status(
+            task.id, TaskStatus.BLOCKED, mission_id=self.mission_id
+        )
 
     def _evaluate(self) -> Dict[str, Any]:
         """Evaluate current mission state."""

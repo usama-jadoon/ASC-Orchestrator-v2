@@ -1,11 +1,13 @@
-"""Universal ASC v2.2.0 - Command-Line Interface.
+"""Universal ASC v2.3.0 - Command-Line Interface.
 
-Provides rich CLI subcommands and launches the interactive Operator Console.
+Provides rich CLI subcommands, machine-readable JSON output,
+and launches the interactive Operator Console.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -19,15 +21,14 @@ from .console import (
     run_status_view,
 )
 from .driver import MissionDriver
-from .repo import Repository
 from .spec import MissionSpecParser
 from .state import State
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 
 
 class CLI:
-    """Command-line interface for Universal ASC DevOS v2.2.0."""
+    """Command-line interface for Universal ASC Orchestrator v2.3.0."""
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path
@@ -39,46 +40,55 @@ class CLI:
         common.add_argument(
             "--cwd",
             type=str,
-            default=".",
+            default=None,
             help="Target repository working directory (defaults to current directory)",
         )
         common.add_argument(
             "--model",
             type=str,
+            default=None,
             help="Configured model or provider route (e.g. omniroute/auto/best-free)",
         )
         common.add_argument(
             "--executor",
             type=str,
+            default=None,
             help="Executor engine (omp, shell, mock)",
         )
         common.add_argument(
             "--execution-timeout",
             type=int,
-            default=600,
+            default=None,
             help="Timeout in seconds for coding executor process",
         )
         common.add_argument(
             "--verification-timeout",
             type=int,
-            default=300,
+            default=None,
             help="Timeout in seconds for verification commands",
         )
         common.add_argument(
             "--mission-id",
             type=str,
+            default=None,
             help="Specific mission ID (defaults to latest active)",
+        )
+        common.add_argument(
+            "--json",
+            action="store_true",
+            default=False,
+            help="Output structured machine-readable JSON",
         )
 
         self.parser = argparse.ArgumentParser(
             prog="asc",
-            description=f"ASC DevOS v{VERSION} — Autonomous Software Company Operator Console",
+            description=f"ASC Orchestrator v{VERSION} — Autonomous Software Company Mission Authority",
             parents=[common],
         )
         self.parser.add_argument(
             "--version",
             action="version",
-            version=f"ASC DevOS v{VERSION}",
+            version=f"ASC Orchestrator v{VERSION}",
         )
 
         subparsers = self.parser.add_subparsers(
@@ -147,7 +157,7 @@ class CLI:
     def run(self, argv: Optional[list] = None) -> None:
         """Execute the CLI command or launch interactive console if no subcommand."""
         args = self.parser.parse_args(argv)
-        cwd = Path(args.cwd).resolve()
+        cwd = Path(args.cwd).resolve() if args.cwd else Path(".").resolve()
 
         if not args.command:
             # Primary launch experience: Open interactive terminal operator console
@@ -155,23 +165,27 @@ class CLI:
             return
 
         if args.command == "init":
-            self._init_mission(args.file, cwd)
+            self._init_mission(args.file, cwd, as_json=args.json)
         elif args.command == "validate":
-            self._validate_mission(args.file, cwd)
+            self._validate_mission(args.file, cwd, as_json=args.json)
         elif args.command == "run":
-            self._run_mission(args, cwd)
+            self._run_mission(args, cwd, as_json=args.json)
         elif args.command == "status":
-            self._show_status(args, cwd)
+            self._show_status(args, cwd, as_json=args.json)
         elif args.command == "resume":
-            self._resume_mission(args, cwd)
+            self._resume_mission(args, cwd, as_json=args.json)
         elif args.command == "doctor":
-            run_doctor(cwd=cwd)
+            run_doctor(cwd=cwd, as_json=args.json)
         elif args.command == "logs":
             run_logs_view(
-                mission_id=args.mission_id, task_id=args.task, limit=args.limit, cwd=cwd
+                mission_id=args.mission_id,
+                task_id=args.task,
+                limit=args.limit,
+                cwd=cwd,
+                as_json=args.json,
             )
 
-    def _init_mission(self, file_path: str, cwd: Path) -> None:
+    def _init_mission(self, file_path: str, cwd: Path, as_json: bool = False) -> None:
         """Initialize a new sample mission file if not present."""
         path = cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not path.exists():
@@ -193,84 +207,135 @@ class CLI:
                 "      - echo 'Verifying core logic'\n"
             )
             path.write_text(sample_content, encoding="utf-8")
-            console.print(
-                f"[bold green]Created sample mission template at:[/bold green] {path}"
-            )
 
         try:
             spec = MissionSpecParser.from_file(path)
             state = State(self.db_path, cwd=cwd)
             state.save_mission(spec)
-            console.print(
-                f"[bold green]Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database.[/bold green]"
-            )
+            if as_json:
+                print(
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "mission_id": spec.id,
+                            "tasks": len(spec.tasks),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                console.print(
+                    f"[bold green]Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database.[/bold green]"
+                )
         except Exception as e:
-            console.print(f"[bold red]Error initializing mission:[/bold red] {e}")
+            if as_json:
+                print(json.dumps({"status": "error", "error": str(e)}, indent=2))
+            else:
+                console.print(f"[bold red]Error initializing mission:[/bold red] {e}")
             sys.exit(1)
 
-    def _validate_mission(self, file_path: str, cwd: Path) -> None:
+    def _validate_mission(
+        self, file_path: str, cwd: Path, as_json: bool = False
+    ) -> None:
         """Validate a mission file specification and DAG validity."""
         path = cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not path.exists():
-            console.print(
-                f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
-            )
+            if as_json:
+                print(
+                    json.dumps(
+                        {
+                            "status": "error",
+                            "error": f"Mission file '{path}' not found",
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                console.print(
+                    f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
+                )
             sys.exit(1)
 
         try:
             spec = MissionSpecParser.from_file(path)
-            console.print(
-                f"[bold green]SUCCESS: Mission '{spec.id}' validation passed![/bold green] "
-                f"({len(spec.tasks)} tasks, 0 cycle/dependency errors)"
-            )
+            warnings = MissionSpecParser.validate(spec)
+            if as_json:
+                print(
+                    json.dumps(
+                        {
+                            "status": "valid" if not warnings else "warning",
+                            "mission_id": spec.id,
+                            "tasks_count": len(spec.tasks),
+                            "warnings": warnings,
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                console.print(
+                    f"[bold green]SUCCESS: Mission '{spec.id}' validation passed![/bold green] "
+                    f"({len(spec.tasks)} tasks, 0 cycle/dependency errors)"
+                )
         except Exception as e:
-            console.print(f"[bold red]Validation ERROR:[/bold red] {e}")
+            if as_json:
+                print(json.dumps({"status": "error", "error": str(e)}, indent=2))
+            else:
+                console.print(f"[bold red]Validation ERROR:[/bold red] {e}")
             sys.exit(1)
 
-    def _run_mission(self, args: argparse.Namespace, cwd: Path) -> None:
-        """Execute a mission end-to-end with dirty-state safety check."""
+    def _run_mission(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
+        """Execute a mission end-to-end with centralized driver preflight."""
         path = cwd / args.file if not Path(args.file).is_absolute() else Path(args.file)
         if not path.exists():
-            console.print(
-                f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
-            )
-            sys.exit(1)
-
-        repo = Repository(cwd)
-        # Pre-execution clean check
-        if repo.is_git_repo() and not repo.is_clean():
-            dirty = repo.get_dirty_files()
-            console.print(
-                f"[bold red]PRE-EXECUTION SAFETY ERROR: Target repository is DIRTY ({len(dirty)} files).[/bold red]\n"
-                f"Offending paths: {dirty[:5]}\n"
-                "Commit, stash, or clean your working tree before running autonomous missions."
-            )
+            if as_json:
+                print(
+                    json.dumps(
+                        {
+                            "status": "error",
+                            "error": f"Mission file '{path}' not found",
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                console.print(
+                    f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
+                )
             sys.exit(1)
 
         try:
             spec = MissionSpecParser.from_file(path)
-            if args.model:
+            if args.model is not None:
                 spec.model = args.model
-            if args.executor:
+            if args.executor is not None:
                 spec.executor = args.executor
-            if args.execution_timeout:
+            if args.execution_timeout is not None:
                 spec.execution_timeout = args.execution_timeout
-            if args.verification_timeout:
+            if args.verification_timeout is not None:
                 spec.verification_timeout = args.verification_timeout
 
-            console.print(
-                f"[bold cyan]Starting Mission '{spec.id}':[/bold cyan] {spec.goal}"
-            )
+            if not as_json:
+                console.print(
+                    f"[bold cyan]Starting Mission '{spec.id}':[/bold cyan] {spec.goal}"
+                )
+
             driver = MissionDriver(
                 spec=spec,
                 db_path=self.db_path,
-                working_directory=str(cwd),
+                working_directory=str(cwd) if args.cwd else None,
                 model=args.model,
                 executor=args.executor,
                 execution_timeout=args.execution_timeout,
                 verification_timeout=args.verification_timeout,
             )
             result = driver.run(spec.id)
+
+            if as_json:
+                print(json.dumps(result, indent=2))
+                return
+
             status_color = (
                 "green" if result.get("final_status") == "COMPLETE" else "red"
             )
@@ -285,23 +350,30 @@ class CLI:
             if result.get("git_commits"):
                 console.print(f"Verified Git Commits: {result.get('git_commits')}")
         except Exception as e:
-            console.print(f"[bold red]Error running mission:[/bold red] {e}")
+            if as_json:
+                print(json.dumps({"status": "error", "error": str(e)}, indent=2))
+            else:
+                console.print(f"[bold red]Error running mission:[/bold red] {e}")
             sys.exit(1)
 
-    def _show_status(self, args: argparse.Namespace, cwd: Path) -> None:
+    def _show_status(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
         """Display status view."""
-        if getattr(args, "watch", False):
+        if getattr(args, "watch", False) and not as_json:
             try:
                 while True:
                     console.clear()
-                    run_status_view(cwd=cwd)
+                    run_status_view(cwd=cwd, as_json=False)
                     time.sleep(2)
             except KeyboardInterrupt:
                 pass
         else:
-            run_status_view(cwd=cwd)
+            run_status_view(cwd=cwd, as_json=as_json)
 
-    def _resume_mission(self, args: argparse.Namespace, cwd: Path) -> None:
+    def _resume_mission(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
         """Resume an interrupted mission."""
         state = State(self.db_path, cwd=cwd)
         target_id = (
@@ -310,15 +382,30 @@ class CLI:
             or state.get_last_mission_id()
         )
         if not target_id:
-            console.print("[bold red]No mission to resume.[/bold red]")
+            if as_json:
+                print(
+                    json.dumps(
+                        {"status": "error", "error": "No mission to resume"}, indent=2
+                    )
+                )
+            else:
+                console.print("[bold red]No mission to resume.[/bold red]")
             sys.exit(1)
 
-        console.print(f"[bold green]Resuming mission '{target_id}'...[/bold green]")
-        driver = MissionDriver(state, mission_id=target_id, working_directory=str(cwd))
-        result = driver.run(target_id)
-        console.print(
-            f"[bold cyan]Execution finished with status: {result.get('final_status')}[/bold cyan]"
+        if not as_json:
+            console.print(f"[bold green]Resuming mission '{target_id}'...[/bold green]")
+        driver = MissionDriver(
+            state,
+            mission_id=target_id,
+            working_directory=str(cwd) if args.cwd else None,
         )
+        result = driver.run(target_id)
+        if as_json:
+            print(json.dumps(result, indent=2))
+        else:
+            console.print(
+                f"[bold cyan]Execution finished with status: {result.get('final_status')}[/bold cyan]"
+            )
 
 
 def main():

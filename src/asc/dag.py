@@ -1,12 +1,13 @@
-"""Pure DAG evaluation functions for Universal ASC.
+"""Pure DAG evaluation functions for Universal ASC v2.3.0.
 
-Provides task readiness checks, runnable task discovery, and mission evaluation.
+Provides task readiness checks, runnable task discovery, and mission evaluation
+with stale execution reconciliation and interrupted state support.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from .models import SchedulerState, Task, TaskStatus
 
@@ -20,12 +21,12 @@ class MissionEvaluationResult:
     blocked_ids: List[str] = field(default_factory=list)
 
 
-def is_task_ready(task: Task, all_tasks: List[Task] | Dict[str, Task]) -> bool:
+def is_task_ready(task: Task, all_tasks: Union[List[Task], Dict[str, Task]]) -> bool:
     """
     Determine if a task is ready to run.
 
     - All dependencies must exist and be in COMPLETED status.
-    - Task must be PENDING (not already COMPLETED/FAILED/RUNNING).
+    - Task must be in PENDING or INTERRUPTED status (not already COMPLETED/FAILED/RUNNING).
     """
     # Convert list to dict registry if needed
     if isinstance(all_tasks, list):
@@ -33,7 +34,7 @@ def is_task_ready(task: Task, all_tasks: List[Task] | Dict[str, Task]) -> bool:
     else:
         task_registry = all_tasks
 
-    if task.status != TaskStatus.PENDING:
+    if task.status not in (TaskStatus.PENDING, TaskStatus.INTERRUPTED):
         return False
     for dep in task.depends_on:
         dep_task = task_registry.get(dep)
@@ -42,10 +43,10 @@ def is_task_ready(task: Task, all_tasks: List[Task] | Dict[str, Task]) -> bool:
     return True
 
 
-def get_runnable_tasks(all_tasks: List[Task] | Dict[str, Task]) -> List[Task]:
+def get_runnable_tasks(all_tasks: Union[List[Task], Dict[str, Task]]) -> List[Task]:
     """
     Return list of tasks that are ready to run
-    (PENDING with all dependencies COMPLETED).
+    (PENDING or INTERRUPTED with all dependencies COMPLETED).
     """
     # Convert list to dict registry if needed
     if isinstance(all_tasks, list):
@@ -55,14 +56,14 @@ def get_runnable_tasks(all_tasks: List[Task] | Dict[str, Task]) -> List[Task]:
 
     runnable = []
     for task in task_registry.values():
-        if task.status == TaskStatus.PENDING and is_task_ready(task, task_registry):
+        if is_task_ready(task, task_registry):
             runnable.append(task)
     return runnable
 
 
 def evaluate_mission(
     mission_id: str,
-    all_tasks: List[Task] | Dict[str, Task],
+    all_tasks: Union[List[Task], Dict[str, Task]],
 ) -> MissionEvaluationResult:
     """
     Evaluate mission state and return scheduler outcome.

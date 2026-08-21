@@ -1,11 +1,13 @@
-"""Universal ASC v2.2.0 - Mission Specification Parser
+"""Universal ASC v2.3.0 - Mission Specification Parser
 
 Parses YAML or JSON mission specifications and validates them.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 
 import yaml
 
@@ -43,7 +45,7 @@ class MissionSpecParser:
         return MissionSpecParser.parse(content)
 
     @staticmethod
-    def _parse_dict(data: Dict) -> MissionSpec:
+    def _parse_dict(data: Dict[str, Any]) -> MissionSpec:
         """Parse mission spec from dictionary."""
         # Validate required fields
         if "id" not in data:
@@ -71,6 +73,7 @@ class MissionSpecParser:
                 executor=str(defaults_data.get("executor", "omp")),
                 working_directory=defaults_data.get("working_directory"),
                 model=defaults_data.get("model"),
+                system_changes=str(defaults_data.get("system_changes", "DENIED")),
             )
         else:
             defaults = MissionDefaults()
@@ -85,6 +88,9 @@ class MissionSpecParser:
         )
         spec_verification_timeout = (
             data.get("verification_timeout") or defaults.verification_timeout
+        )
+        spec_system_changes = str(
+            data.get("system_changes") or defaults.system_changes or "DENIED"
         )
 
         task_ids = set()
@@ -124,27 +130,30 @@ class MissionSpecParser:
 
             # Validate all dependencies exist
             for dep_id in depends_on:
-                if dep_id not in task_ids:  # Check if dependency exists
+                if dep_id not in task_ids:
                     raise ValueError(
                         f"Task validation failed: missing dependency '{dep_id}'"
                     )
 
-            # Build task command / verification
+            # Build task commands (multi-command verification support)
             command_data = task_data.get("command")
             if command_data is None:
                 command_data = task_data.get("verify")
 
-            command = None
+            commands: List[VerificationCommand] = []
             if command_data is not None:
                 if isinstance(command_data, str):
-                    command = VerificationCommand(command=command_data)
+                    commands = [VerificationCommand(command=command_data)]
                 elif isinstance(command_data, dict):
-                    command = VerificationCommand(**command_data)
-                elif isinstance(command_data, list) and command_data:
-                    if isinstance(command_data[0], str):
-                        command = VerificationCommand(command=command_data[0])
-                    elif isinstance(command_data[0], dict):
-                        command = VerificationCommand(**command_data[0])
+                    commands = [VerificationCommand(**command_data)]
+                elif isinstance(command_data, list):
+                    for item in command_data:
+                        if isinstance(item, str):
+                            commands.append(VerificationCommand(command=item))
+                        elif isinstance(item, dict):
+                            commands.append(VerificationCommand(**item))
+
+            primary_command = commands[0] if commands else None
 
             task_executor = task_data.get("executor")
             task_working_directory = task_data.get("working_directory")
@@ -158,7 +167,8 @@ class MissionSpecParser:
                     title=task_data["title"],
                     prompt=task_data["prompt"],
                     depends_on=depends_on,
-                    command=command,
+                    command=primary_command,
+                    commands=commands,
                     executor=task_executor,
                     working_directory=task_working_directory,
                     model=task_model,
@@ -178,6 +188,7 @@ class MissionSpecParser:
             model=spec_model,
             execution_timeout=spec_execution_timeout,
             verification_timeout=spec_verification_timeout,
+            system_changes=spec_system_changes,
         )
 
     @staticmethod

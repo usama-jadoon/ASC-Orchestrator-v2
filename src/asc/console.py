@@ -1,4 +1,4 @@
-"""Universal ASC v2.2.0 - Professional Terminal Operator Console.
+"""Universal ASC v2.3.0 - Professional Terminal Operator Console.
 
 Provides rich terminal rendering, interactive REPL console, diagnostic dashboards,
 and real-time event displays following UI/UX Pro Max Developer Tool guidelines.
@@ -6,6 +6,7 @@ and real-time event displays following UI/UX Pro Max Developer Tool guidelines.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -28,7 +29,6 @@ if sys.platform == "win32":
             pass
 
 from rich import box
-from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -40,7 +40,7 @@ from .repo import Repository
 from .spec import MissionSpecParser
 from .state import State
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 console = Console(safe_box=True)
 
 
@@ -54,6 +54,7 @@ def get_git_info(cwd: str | Path = ".") -> Dict[str, Any]:
             "name": Path(cwd).resolve().name,
             "branch": "N/A",
             "head": "N/A",
+            "full_head": "N/A",
             "clean": True,
             "dirty_count": 0,
             "dirty_files": [],
@@ -93,7 +94,7 @@ def render_header(
     sys_icon = "*" if state_name in ("READY", "RUNNING") else "+"
 
     left_text = Text()
-    left_text.append("ASC DevOS ", style="bold bright_white")
+    left_text.append("ASC Orchestrator ", style="bold bright_white")
     left_text.append(f"v{VERSION}", style="dim cyan")
 
     right_text = Text()
@@ -121,7 +122,9 @@ def render_header(
     repo_full = str(git_info.get("name", "Project"))
     repo_display = repo_full[:24] + "..." if len(repo_full) > 26 else repo_full
 
-    model_display = model or "omniroute/auto (configured)"
+    model_display = model or (
+        os.environ.get("OMP_MODEL") or "omniroute/auto (configured)"
+    )
 
     m_style = (
         "bold green"
@@ -148,92 +151,81 @@ def render_header(
 
     return Panel(
         main_grid,
-        border_style="cyan",
+        border_style="#334155",
         box=box.ROUNDED,
         padding=(0, 1),
     )
 
 
-def _render_progress_bar(completed: int, total: int, width: int = 16) -> Text:
-    """Render authentic styled character-cell progress bar without raw markup leaks."""
-    bar_text = Text()
-    if total == 0:
-        bar_text.append("[" + "-" * width + "]", style="dim #475569")
-        bar_text.append(" 0% (0/0 tasks)", style="dim white")
-        return bar_text
-
-    pct = int((completed / total) * 100)
-    filled = int((completed / total) * width)
-    unfilled = width - filled
-
-    bar_text.append("[", style="dim white")
-    bar_text.append("=" * filled, style="bold green")
-    if unfilled > 0:
-        bar_text.append("-" * unfilled, style="dim #475569")
-    bar_text.append("]", style="dim white")
-    bar_text.append(f" {pct}% ({completed}/{total} tasks)", style="bold white")
-    return bar_text
+def _render_progress_bar(completed: int, total: int, width: int = 30) -> Text:
+    """Render a styled Rich Text progress bar."""
+    pct = int((completed / total) * 100) if total > 0 else 0
+    filled = int((pct / 100) * width) if width > 0 else 0
+    bar = Text()
+    bar.append("[", style="dim #475569")
+    bar.append("=" * filled, style="bold green")
+    if filled < width:
+        bar.append("-" * (width - filled), style="dim #334155")
+    bar.append(f"] {pct}% ({completed}/{total} tasks)", style="bold white")
+    return bar
 
 
 def render_mission_panel(
-    tasks: List[Task], mission_goal: str = "No active mission"
+    tasks: List[Task],
+    mission_goal: str = "",
 ) -> Panel:
-    """Render mission DAG and progress panel."""
-    total_tasks = len(tasks)
-    completed_tasks = 0
+    """Render structured task table with progress bar."""
+    total = len(tasks)
+    completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
 
-    grid = Table.grid(expand=True)
-    grid.add_row(Text(f"Goal: {mission_goal}", style="italic dim white"))
-    grid.add_row(Text("-" * 38, style="dim #334155"))
+    table = Table(
+        box=box.SIMPLE_HEAD,
+        border_style="#334155",
+        header_style="bold #94A3B8",
+        expand=True,
+        padding=(0, 1),
+    )
+    table.add_column("Task ID", style="bold white", width=10)
+    table.add_column("Title", style="white", ratio=1)
+    table.add_column("Status", justify="right", width=14)
+
+    status_styles = {
+        TaskStatus.COMPLETED: ("[bold green]DONE[/bold green]", "COMPLETED"),
+        TaskStatus.RUNNING: ("[bold yellow]RUNNING[/bold yellow]", "RUNNING"),
+        TaskStatus.FAILED: ("[bold red]FAILED[/bold red]", "FAILED"),
+        TaskStatus.BLOCKED: ("[bold red]BLOCKED[/bold red]", "BLOCKED"),
+        TaskStatus.PENDING: ("[dim white]PENDING[/dim white]", "PENDING"),
+        TaskStatus.CANCELLED: ("[dim red]CANCELLED[/dim red]", "CANCELLED"),
+        TaskStatus.INTERRUPTED: (
+            "[bold yellow]INTERRUPTED[/bold yellow]",
+            "INTERRUPTED",
+        ),
+    }
+
+    for task in tasks:
+        markup, _ = status_styles.get(
+            task.status, (f"[dim]{task.status.value}[/dim]", str(task.status))
+        )
+        table.add_row(task.id, task.title, Text.from_markup(markup))
 
     if not tasks:
-        empty_box = Table.grid(expand=True, padding=(1, 1))
-        empty_box.add_row(
-            Align.center(
-                Text(
-                    "No active mission — run <mission-file> to start",
-                    style="dim cyan",
-                )
-            )
+        table.add_row(
+            "-", "No active mission — run <mission-file> to start", "[dim]EMPTY[/dim]"
         )
-        grid.add_row(empty_box)
-    else:
-        table = Table(box=None, expand=True, show_header=False, padding=(0, 1))
-        table.add_column("Icon", width=3)
-        table.add_column("ID", style="bold white", width=14)
-        table.add_column("Status", width=12)
-        table.add_column("Details", style="dim white")
 
-        for t in tasks:
-            if t.status == TaskStatus.COMPLETED:
-                icon = Text("+", style="bold green")
-                st = Text("COMPLETE", style="bold green")
-                completed_tasks += 1
-            elif t.status == TaskStatus.RUNNING:
-                icon = Text("*", style="bold yellow")
-                st = Text("RUNNING", style="bold yellow")
-            elif t.status == TaskStatus.FAILED:
-                icon = Text("X", style="bold red")
-                st = Text("FAILED", style="bold red")
-            elif t.status == TaskStatus.BLOCKED:
-                icon = Text("!", style="bold red")
-                st = Text("BLOCKED", style="bold red")
-            else:
-                icon = Text("o", style="dim white")
-                st = Text("PENDING", style="dim white")
+    bar_text = _render_progress_bar(completed, total, width=30)
 
-            task_title = t.title[:22] + "..." if len(t.title) > 24 else t.title
-            table.add_row(icon, t.id, st, task_title)
-
-        grid.add_row(table)
-
-    grid.add_row(Text("-" * 38, style="dim #334155"))
-    grid.add_row(_render_progress_bar(completed_tasks, total_tasks))
+    layout = Table.grid(expand=True)
+    if mission_goal:
+        goal_text = Text(f"Goal: {mission_goal}", style="dim #94A3B8")
+        layout.add_row(goal_text)
+    layout.add_row(bar_text)
+    layout.add_row(table)
 
     return Panel(
-        grid,
-        title="[bold white]MISSION[/bold white]",
-        border_style="blue",
+        layout,
+        title="[bold white]MISSION PROGRESS[/bold white]",
+        border_style="#334155",
         box=box.ROUNDED,
         padding=(0, 1),
     )
@@ -242,111 +234,81 @@ def render_mission_panel(
 def render_runtime_panel(
     executor_status: str = "READY",
     attempt: str = "— / —",
-    lock_status: str = "FREE",
-    changed_files: int = 0,
-    elapsed: str = "00:00:00",
     exec_phase: str = "IDLE",
     verify_phase: str = "IDLE",
+    last_action: str = "Idle",
+    changed_files_count: int = 0,
+    lock_status: str = "FREE",
     has_active_mission: bool = False,
+    **kwargs: Any,
 ) -> Panel:
-    """Render runtime telemetry panel."""
-    table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(style="dim #94A3B8", width=16)
-    table.add_column(style="bold white", justify="right")
+    """Render runtime & verification execution metrics."""
+    grid = Table.grid(expand=True, padding=(0, 2))
+    grid.add_column(style="dim #94A3B8", width=18)
+    grid.add_column(style="bold white", ratio=1)
 
-    lock_badge = (
-        Text.from_markup("[bold green]HELD[/bold green]")
-        if lock_status == "HELD"
-        else Text.from_markup("[dim white]FREE[/dim white]")
+    effective_exec_phase = (
+        exec_phase
+        if exec_phase != "IDLE"
+        else ("RUNNING" if has_active_mission else "IDLE")
     )
-
-    exec_styled = (
-        Text.from_markup(f"[bold yellow]{exec_phase}[/bold yellow]")
-        if exec_phase == "RUNNING"
-        else (
-            Text.from_markup(f"[bold green]{exec_phase}[/bold green]")
-            if exec_phase in ("COMPLETED", "READY")
-            else Text(exec_phase, style="dim white")
-        )
+    effective_verify_phase = (
+        verify_phase
+        if verify_phase != "IDLE"
+        else ("PASSING" if has_active_mission else "IDLE")
     )
 
-    verify_styled = (
-        Text.from_markup(f"[bold green]{verify_phase}[/bold green]")
-        if verify_phase == "PASS"
-        else (
-            Text.from_markup(f"[bold yellow]{verify_phase}[/bold yellow]")
-            if verify_phase == "RUNNING"
-            else Text(verify_phase, style="dim white")
-        )
+    grid.add_row("Executor Engine", executor_status)
+    grid.add_row("Attempt", attempt if has_active_mission else "— / —")
+    grid.add_row("Execution Phase", effective_exec_phase)
+    grid.add_row("Verification", effective_verify_phase)
+    grid.add_row(
+        "Changed Files",
+        f"{changed_files_count} changes" if changed_files_count > 0 else "0 changes",
     )
-
-    table.add_row(
-        "OMP Runtime",
-        Text.from_markup(f"[bold green]{executor_status}[/bold green]"),
-    )
-    table.add_row("Attempt", attempt if has_active_mission else "— / —")
-    table.add_row(
-        "Execution",
-        exec_styled if has_active_mission else Text("IDLE", style="dim white"),
-    )
-    table.add_row(
-        "Verification",
-        verify_styled if has_active_mission else Text("IDLE", style="dim white"),
-    )
-    table.add_row("Project Lock", lock_badge)
-    table.add_row("Changed Files", f"{changed_files} changes")
-    table.add_row("Elapsed", elapsed)
+    grid.add_row("Lock Status", lock_status)
+    grid.add_row("Last Action", last_action)
 
     return Panel(
-        table,
-        title="[bold white]RUNTIME[/bold white]",
-        border_style="blue",
+        grid,
+        title="[bold white]RUNTIME TELEMETRY[/bold white]",
+        border_style="#334155",
         box=box.ROUNDED,
         padding=(0, 1),
     )
 
 
-def render_activity_panel(events: List[Dict[str, Any]], max_events: int = 6) -> Panel:
-    """Render recent activity log panel with semantic coloring."""
-    grid = Table.grid(expand=True, padding=(0, 1))
+def render_activity_panel(events: List[Dict[str, Any]]) -> Panel:
+    """Render recent chronological events list."""
+    grid = Table.grid(expand=True, padding=(0, 2))
     grid.add_column(style="dim #64748B", width=10)
-    grid.add_column(width=24)
-    grid.add_column(style="dim white", ratio=1)
+    grid.add_column(style="bold cyan", width=22)
+    grid.add_column(style="white", ratio=1)
 
-    recent = events[-max_events:] if events else []
-    if not recent:
-        grid.add_row(
-            "--:--:--",
-            Text("IDLE", style="dim #94A3B8"),
-            "Awaiting operator commands...",
-        )
+    if not events:
+        grid.add_row("-", "NO RECENT EVENTS", "System ready for commands")
     else:
-        for ev in recent:
+        for ev in events:
             ts = time.strftime(
                 "%H:%M:%S", time.localtime(ev.get("timestamp", time.time()))
             )
-            ev_type = str(ev.get("event_type", "EVENT"))
-
-            if any(
-                k in ev_type for k in ("COMPLETED", "PASSED", "CREATED", "ACQUIRED")
-            ):
-                type_styled = Text(ev_type, style="bold green")
-            elif any(k in ev_type for k in ("STARTED", "READY")):
-                type_styled = Text(ev_type, style="bold cyan")
-            elif "HEARTBEAT" in ev_type:
-                type_styled = Text(ev_type, style="dim #60A5FA")
-            elif any(k in ev_type for k in ("FAILED", "BLOCKED", "CONFLICT")):
-                type_styled = Text(ev_type, style="bold red")
-            elif "RETRY" in ev_type:
-                type_styled = Text(ev_type, style="bold yellow")
-            else:
-                type_styled = Text(ev_type, style="dim white")
-
+            ev_type = ev.get("event_type", "EVENT")
+            type_styled = (
+                f"[bold green]{ev_type}[/bold green]"
+                if "PASSED" in ev_type or "COMPLETED" in ev_type
+                else (
+                    f"[bold red]{ev_type}[/bold red]"
+                    if "FAILED" in ev_type or "BLOCKED" in ev_type
+                    else f"[bold cyan]{ev_type}[/bold cyan]"
+                )
+            )
             payload = ev.get("payload", {})
-            if ev.get("message"):
-                msg = str(ev["message"])
-            elif isinstance(payload, dict):
-                msg = ", ".join(f"{k}={v}" for k, v in payload.items())
+            if isinstance(payload, dict):
+                msg = (
+                    payload.get("message")
+                    or payload.get("title")
+                    or (", ".join(f"{k}={v}" for k, v in payload.items()))
+                )
             else:
                 msg = str(payload)
 
@@ -363,13 +325,12 @@ def render_activity_panel(events: List[Dict[str, Any]], max_events: int = 6) -> 
     )
 
 
-def run_doctor(cwd: str | Path = ".") -> None:
-    """Run comprehensive ASC doctor diagnostics and print dashboard."""
+def get_doctor_snapshot(cwd: str | Path = ".") -> Dict[str, Any]:
+    """Retrieve structured system diagnostic snapshot."""
     cwd_path = Path(cwd).resolve()
     git_info = get_git_info(cwd_path)
     state = State(cwd=cwd_path)
 
-    # Check OMP
     omp_found = shutil.which("omp") or shutil.which("omp.exe")
     if not omp_found:
         home = Path.home()
@@ -377,13 +338,6 @@ def run_doctor(cwd: str | Path = ".") -> None:
         if bun_omp.exists():
             omp_found = str(bun_omp)
 
-    omp_status = (
-        f"[bold green]FOUND[/bold green] ({omp_found})"
-        if omp_found
-        else "[bold red]NOT FOUND[/bold red]"
-    )
-
-    # Lock check
     repo = Repository(cwd_path)
     lock_dir = (
         repo.get_root_dir() / ".git" / "asc"
@@ -392,18 +346,40 @@ def run_doctor(cwd: str | Path = ".") -> None:
     )
     lock = ProjectLock(lock_dir)
     lock_info = lock.get_lock_info()
-    lock_status_str = (
-        f"[bold yellow]HELD[/bold yellow] (PID {lock_info.get('pid') if lock_info else 'unknown'})"
-        if lock.is_locked()
-        else "[bold green]FREE[/bold green]"
-    )
 
-    # Missions
     missions = state.get_all_missions(limit=5)
-    last_mission = state.get_last_mission_id() or "None"
+    last_mission = state.get_last_mission_id()
+
+    return {
+        "asc_version": VERSION,
+        "python_version": f"{platform.python_version()} ({sys.executable})",
+        "platform": platform.platform(),
+        "git": git_info,
+        "state_path": str(state.db_path),
+        "omp": {
+            "found": bool(omp_found),
+            "path": str(omp_found) if omp_found else None,
+        },
+        "lock": {
+            "is_locked": lock.is_locked(),
+            "info": lock_info,
+        },
+        "model_route": os.environ.get("OMP_MODEL", "omniroute/auto (configured)"),
+        "total_missions": len(missions),
+        "last_mission_id": last_mission,
+        "system_status": "READY",
+    }
+
+
+def run_doctor(cwd: str | Path = ".", as_json: bool = False) -> None:
+    """Run comprehensive ASC doctor diagnostics."""
+    snapshot = get_doctor_snapshot(cwd)
+    if as_json:
+        print(json.dumps(snapshot, indent=2))
+        return
 
     table = Table(
-        title=f"ASC DevOS v{VERSION} - System Diagnostics",
+        title=f"ASC Orchestrator v{VERSION} - System Diagnostics",
         box=box.ROUNDED,
         border_style="cyan",
         expand=True,
@@ -412,33 +388,94 @@ def run_doctor(cwd: str | Path = ".") -> None:
     table.add_column("Status / Full Path", style="dim white")
 
     table.add_row("ASC Core Version", f"[bold green]{VERSION}[/bold green]")
-    table.add_row("Python Runtime", f"{platform.python_version()} ({sys.executable})")
-    table.add_row("Project Root", git_info["root"])
-    table.add_row("Repository Name", git_info["name"])
-    table.add_row("Git Branch", git_info["branch"])
-    table.add_row("Git HEAD Commit", str(git_info.get("full_head", git_info["head"])))
+    table.add_row("Python Runtime", snapshot["python_version"])
+    table.add_row("Project Root", snapshot["git"]["root"])
+    table.add_row("Repository Name", snapshot["git"]["name"])
+    table.add_row("Git Branch", snapshot["git"]["branch"])
+    table.add_row(
+        "Git HEAD Commit",
+        str(snapshot["git"].get("full_head", snapshot["git"]["head"])),
+    )
     table.add_row(
         "Git Working Tree",
         "[bold green]CLEAN[/bold green]"
-        if git_info["clean"]
-        else f"[bold red]DIRTY ({git_info['dirty_count']} files)[/bold red]",
+        if snapshot["git"]["clean"]
+        else f"[bold red]DIRTY ({snapshot['git']['dirty_count']} files)[/bold red]",
     )
-    table.add_row("ASC State Path", str(state.db_path))
-    table.add_row("OMP Executable", omp_status)
-    table.add_row("Execution Lock", lock_status_str)
+    table.add_row("ASC State Path", snapshot["state_path"])
     table.add_row(
-        "Configured Route", os.environ.get("OMP_MODEL", "omniroute/auto (default)")
+        "OMP Executable",
+        f"[bold green]FOUND[/bold green] ({snapshot['omp']['path']})"
+        if snapshot["omp"]["found"]
+        else "[bold red]NOT FOUND[/bold red]",
     )
+    table.add_row(
+        "Execution Lock",
+        f"[bold yellow]HELD[/bold yellow] (PID {snapshot['lock']['info'].get('pid') if snapshot['lock']['info'] else 'unknown'})"
+        if snapshot["lock"]["is_locked"]
+        else "[bold green]FREE[/bold green]",
+    )
+    table.add_row("Configured Route", snapshot["model_route"])
     table.add_row("OmniRoute Gateway", "[dim yellow]UNKNOWN / NOT PROBED[/dim yellow]")
     table.add_row(
-        "Total Missions", f"{len(missions)} recorded (Latest: {last_mission})"
+        "Total Missions",
+        f"{snapshot['total_missions']} recorded (Latest: {snapshot['last_mission_id'] or 'None'})",
     )
 
     console.print(table)
 
 
-def run_status_view(cwd: str | Path = ".") -> None:
+def get_status_snapshot(cwd: str | Path = ".") -> Dict[str, Any]:
+    """Retrieve structured status snapshot for machine output."""
+    cwd_path = Path(cwd).resolve()
+    git_info = get_git_info(cwd_path)
+    state = State(cwd=cwd_path)
+
+    last_mission_id = state.get_last_mission_id()
+    mission = state.get_mission(last_mission_id) if last_mission_id else None
+    tasks = state.get_tasks(last_mission_id) if last_mission_id else []
+    events = (
+        state.get_events(mission_id=last_mission_id, limit=5) if last_mission_id else []
+    )
+
+    return {
+        "asc_version": VERSION,
+        "git": git_info,
+        "mission": {
+            "id": mission.id if mission else None,
+            "goal": mission.goal if mission else None,
+            "status": mission.status if mission else "IDLE",
+            "executor": getattr(mission, "executor", "OMP") if mission else "OMP",
+            "model": getattr(mission, "model", None) if mission else None,
+            "working_directory": getattr(mission, "working_directory", str(cwd_path))
+            if mission
+            else str(cwd_path),
+        }
+        if mission
+        else None,
+        "tasks": [
+            {
+                "id": t.id,
+                "title": t.title,
+                "status": t.status.value
+                if hasattr(t.status, "value")
+                else str(t.status),
+                "depends_on": t.depends_on,
+                "commit_sha": t.commit_sha,
+            }
+            for t in tasks
+        ],
+        "recent_events": events,
+    }
+
+
+def run_status_view(cwd: str | Path = ".", as_json: bool = False) -> None:
     """Print current repository and mission status snapshot."""
+    if as_json:
+        snapshot = get_status_snapshot(cwd)
+        print(json.dumps(snapshot, indent=2))
+        return
+
     cwd_path = Path(cwd).resolve()
     git_info = get_git_info(cwd_path)
     state = State(cwd=cwd_path)
@@ -488,11 +525,16 @@ def run_logs_view(
     task_id: Optional[str] = None,
     limit: int = 50,
     cwd: str | Path = ".",
+    as_json: bool = False,
 ) -> None:
     """Display formatted event logs."""
     state = State(cwd=cwd)
     mid = mission_id or state.get_last_mission_id()
     events = state.get_events(mission_id=mid, task_id=task_id, limit=limit)
+
+    if as_json:
+        print(json.dumps(events, indent=2))
+        return
 
     if not events:
         console.print(
@@ -527,7 +569,7 @@ def run_logs_view(
 
 
 class InteractiveConsole:
-    """Interactive REPL terminal operator console for ASC DevOS."""
+    """Interactive REPL terminal operator console for ASC Orchestrator."""
 
     def __init__(self, cwd: str | Path = "."):
         self.cwd = Path(cwd).resolve()
@@ -630,14 +672,14 @@ class InteractiveConsole:
             if not args:
                 console.print("[bold red]Usage:[/bold red] run <mission.yaml>")
             else:
-                from .driver import MissionDriver
-
                 spec_file = args[0]
                 if not Path(spec_file).exists():
                     console.print(f"[bold red]File not found:[/bold red] {spec_file}")
                     return
                 try:
                     spec = MissionSpecParser.from_file(spec_file)
+                    from .driver import MissionDriver
+
                     driver = MissionDriver(spec=spec, working_directory=str(self.cwd))
                     console.print(
                         f"[bold green]Starting mission '{spec.id}'...[/bold green]"
@@ -649,13 +691,13 @@ class InteractiveConsole:
                 except Exception as exc:
                     console.print(f"[bold red]Error running mission:[/bold red] {exc}")
         elif cmd == "resume":
-            from .driver import MissionDriver
-
             mid = args[0] if args else self.state.get_last_mission_id()
             if not mid:
                 console.print("[bold red]No mission to resume.[/bold red]")
                 return
             try:
+                from .driver import MissionDriver
+
                 driver = MissionDriver(
                     self.state, mission_id=mid, working_directory=str(self.cwd)
                 )
@@ -674,7 +716,7 @@ class InteractiveConsole:
     def show_help(self) -> None:
         """Display help sheet."""
         table = Table(
-            title="ASC DevOS Interactive Commands",
+            title="ASC Orchestrator Interactive Commands",
             box=box.ROUNDED,
             border_style="cyan",
             expand=True,

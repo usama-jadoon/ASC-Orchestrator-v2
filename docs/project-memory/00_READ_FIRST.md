@@ -2,12 +2,12 @@
 
 **Purpose:** This is the permanent entry point for the ASC Orchestrator project memory.
 
-**Snapshot date:** 2026-08-21
+**Snapshot date:** 2026-08-22
 **Authoritative repository:** `usama-jadoon/ASC-Orchestrator-v2`
-**Current branch:** `feature/asc-v2.2-console-safety` (v2.2 Professional Operator Console + Real-Project Safety)
-**Current merged baseline:** `main` at `5d08358dda89b8bb00e1c0076f37d3cfa78da709`
-**Current package version:** `2.2.0` (v2.2 Console & Safety release)
-**Current release status:** Universal v2.2 Professional Operator Console, Real-Project Git Safety, Project Execution Lock, and Scheduler RUNNING state verified. First InboxShield pilot recorded as INTERRUPTED / NOT VERIFIED (saved safely in stash).
+**Current branch:** `feature/asc-orchestrator-final-reliability` (v2.3.0 Final Real-Project Reliability & Integration Boundary Pass)
+**Current merged baseline:** `main` at `10def216a368af8e07a10be5d6a8292abab7852b`
+**Current package version:** `2.3.0` (v2.3 Reliability & Integration Boundary release)
+**Current release status:** Universal v2.3.0 Final Real-Project Reliability Pass verified. SQLite composite task identity schema v2, strict path precedence, process stream non-blocking draining, safe rollback without recursive deletion, multi-command verification, centralized repository preflight, and machine-readable JSON output verified (753 passed, 6 skipped in 759-test suite).
 
 ---
 
