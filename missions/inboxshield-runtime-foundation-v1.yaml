@@ -1,9 +1,8 @@
-﻿id: inboxshield-runtime-foundation-v1
+id: inboxshield-runtime-foundation-v1
 
 goal: >
-  Establish a truthful, reproducible local PostgreSQL and Redis runtime
-  foundation for InboxShield AI without changing existing product ownership
-  boundaries.
+  Establish a truthful local PostgreSQL + Redis runtime using the smallest safe
+  environment available on this Windows machine.
 
 defaults:
   executor: omp
@@ -14,7 +13,7 @@ defaults:
 tasks:
 
   - id: runtime-foundation
-    title: Add reproducible PostgreSQL and Redis local runtime
+    title: Establish truthful local PostgreSQL and Redis-compatible runtime
     prompt: |
       You are working inside the existing InboxShield-AI repository.
 
@@ -32,18 +31,17 @@ tasks:
       - existing health checks
 
       GOAL:
-      Establish a reproducible local development runtime for the infrastructure
-      InboxShield already depends on.
+      Establish a truthful local PostgreSQL + Redis runtime using the smallest
+      safe environment available on this Windows machine.
 
       Implement the smallest correct solution for:
 
-      1. PostgreSQL local runtime
-      2. Redis local runtime
-      3. Docker Compose configuration
-      4. safe example environment configuration
-      5. clear local start/stop instructions
-      6. correct persistence/volume configuration
-      7. health checks where appropriate
+      1. PostgreSQL local runtime (prefer existing native PostgreSQL 16 on port 5432)
+      2. Redis-compatible local runtime (native Windows service or process for BullMQ)
+      3. Safe example environment configuration (.env.example, .env.local.example)
+      4. Clear local start/stop instructions without mandatory Docker dependency
+      5. Correct database URL and Redis connection strings
+      6. Health checks where appropriate
 
       IMPORTANT ARCHITECTURE RULES:
 
@@ -51,7 +49,7 @@ tasks:
       - BullMQ remains responsible for scan jobs, retries, scheduling,
         webhook processing and operational workers.
       - PostgreSQL remains InboxShield factual/product storage.
-      - Redis remains BullMQ/runtime infrastructure.
+      - Redis-compatible runtime remains BullMQ/runtime infrastructure.
       - Do NOT copy ASC source into InboxShield.
       - Do NOT vendor ASC.
       - Do NOT replace BullMQ with ASC.
@@ -82,7 +80,7 @@ tasks:
 
       Once implementation is complete, stop.
     verify:
-      command: "docker compose config && npx turbo run typecheck && npm test"
+      command: "npx turbo run typecheck && npm test"
 
   - id: runtime-readiness
     title: Add bounded runtime readiness verification
@@ -100,7 +98,7 @@ tasks:
 
       PostgreSQL available
         +
-      Redis available
+      Redis-compatible runtime available
         ↓
       InboxShield dependencies connect
         ↓
@@ -117,11 +115,8 @@ tasks:
       - update local-development documentation
       - no push, merge, tag or release
 
-      If live Docker services cannot be started in the current environment,
-      preserve truthful automated configuration/tests and explicitly report
-      live verification as NOT VERIFIED rather than fabricating PASS.
+      Explicitly report live verification evidence rather than fabricating PASS.
 
       Stop once the defined task is implemented and verified.
     verify:
       command: "npx turbo run typecheck && npm test && npm run build"
-
