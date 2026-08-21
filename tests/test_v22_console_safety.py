@@ -382,6 +382,109 @@ class TestConsoleAndCLIRendering(unittest.TestCase):
         self.assertIsNotNone(r)
         self.assertIsNotNone(a)
 
+    def test_progress_bar_renders_clean_text_without_raw_markup(self):
+        from asc.console import _render_progress_bar
+
+        empty_bar = _render_progress_bar(0, 0)
+        self.assertNotIn("[bold green]", empty_bar.plain)
+        self.assertIn("0% (0/0 tasks)", empty_bar.plain)
+
+        active_bar = _render_progress_bar(2, 4)
+        self.assertNotIn("[bold green]", active_bar.plain)
+        self.assertIn("50% (2/4 tasks)", active_bar.plain)
+
+    def test_idle_runtime_panel_values(self):
+        r_idle = render_runtime_panel(has_active_mission=False)
+        import io
+
+        from rich.console import Console
+
+        sio = io.StringIO()
+        test_c = Console(file=sio, width=120)
+        test_c.print(r_idle)
+        output = sio.getvalue()
+
+        self.assertIn("— / —", output)
+        self.assertIn("0 changes", output)
+        self.assertNotIn("WAITING", output)
+        self.assertNotIn("0 delta", output)
+
+    def test_empty_mission_panel_shows_action_hint(self):
+        m_empty = render_mission_panel([], mission_goal="No active mission")
+        import io
+
+        from rich.console import Console
+
+        sio = io.StringIO()
+        test_c = Console(file=sio, width=120)
+        test_c.print(m_empty)
+        output = sio.getvalue()
+
+        self.assertIn("No active mission — run <mission-file> to start", output)
+        self.assertNotIn("No tasks", output)
+
+    def test_console_renders_cleanly_at_multiple_column_widths(self):
+        import io
+
+        from rich.console import Console
+
+        git_info = get_git_info(self.temp_dir)
+        tasks = [
+            Task(
+                id="t1",
+                title="Task 1",
+                prompt="p1",
+                status=TaskStatus.COMPLETED,
+                commit_sha="abc12345",
+            ),
+            Task(id="t2", title="Task 2", prompt="p2", status=TaskStatus.RUNNING),
+        ]
+        events = [
+            {
+                "event_type": "TASK_STARTED",
+                "task_id": "t2",
+                "timestamp": time.time(),
+                "message": "Executing",
+            },
+            {
+                "event_type": "EXECUTOR_HEARTBEAT",
+                "task_id": "t2",
+                "timestamp": time.time(),
+                "payload": {"elapsed_seconds": 5},
+            },
+        ]
+
+        for width in [120, 150, 180]:
+            sio = io.StringIO()
+            test_c = Console(file=sio, width=width, safe_box=True)
+            h = render_header(
+                git_info,
+                state_name="RUNNING",
+                mission_status="RUNNING",
+                model="stepfun/step-3.7-flash:free",
+            )
+            m = render_mission_panel(tasks, mission_goal="Integration Test")
+            r = render_runtime_panel(
+                executor_status="READY",
+                attempt="1 / 2",
+                has_active_mission=True,
+                exec_phase="RUNNING",
+                verify_phase="IDLE",
+            )
+            a = render_activity_panel(events)
+
+            test_c.print(h)
+            test_c.print(m)
+            test_c.print(r)
+            test_c.print(a)
+
+            rendered = sio.getvalue()
+            # Ensure no raw unrendered rich markup tags leaked into plain output
+            self.assertNotIn("[bold green]", rendered)
+            self.assertNotIn("[bold cyan]", rendered)
+            self.assertNotIn("[/bold", rendered)
+            self.assertIn("stepfun/step-3.7-flash:free", rendered)
+
     def test_cli_help_and_version(self):
         cli = CLI(db_path=str(Path(self.temp_dir) / "asc.db"))
         with self.assertRaises(SystemExit) as cm:

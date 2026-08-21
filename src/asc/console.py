@@ -28,6 +28,7 @@ if sys.platform == "win32":
             pass
 
 from rich import box
+from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -64,6 +65,7 @@ def get_git_info(cwd: str | Path = ".") -> Dict[str, Any]:
         "name": repo.get_repo_name(),
         "branch": repo.get_current_branch() or "HEAD",
         "head": (repo.get_head_commit() or "")[:8],
+        "full_head": repo.get_head_commit() or "N/A",
         "clean": status.is_clean,
         "dirty_count": len(status.all_dirty),
         "dirty_files": status.all_dirty,
@@ -73,6 +75,7 @@ def get_git_info(cwd: str | Path = ".") -> Dict[str, Any]:
 def render_header(
     git_info: Dict[str, Any],
     state_name: str = "READY",
+    mission_status: str = "IDLE",
     elapsed: str = "00:00:00",
     model: Optional[str] = None,
     executor: str = "OMP",
@@ -82,53 +85,65 @@ def render_header(
     grid.add_column(justify="left", ratio=1)
     grid.add_column(justify="right", ratio=1)
 
-    status_style = (
+    sys_style = (
         "bold green"
         if state_name in ("READY", "COMPLETE")
         else ("bold yellow" if state_name == "RUNNING" else "bold red")
     )
-    status_icon = "*" if state_name in ("READY", "RUNNING") else "+"
+    sys_icon = "*" if state_name in ("READY", "RUNNING") else "+"
 
     left_text = Text()
     left_text.append("ASC DevOS ", style="bold bright_white")
     left_text.append(f"v{VERSION}", style="dim cyan")
 
     right_text = Text()
-    right_text.append(f"{status_icon} SYSTEM {state_name}", style=status_style)
+    right_text.append(f"{sys_icon} SYSTEM {state_name}", style=sys_style)
     grid.add_row(left_text, right_text)
 
     # Sub-grid metadata
     info_table = Table.grid(expand=True, padding=(0, 2))
-    info_table.add_column(style="dim white", width=10)
+    info_table.add_column(style="dim #94A3B8", width=12)
     info_table.add_column(style="bold white", ratio=1)
-    info_table.add_column(style="dim white", width=10)
+    info_table.add_column(style="dim #94A3B8", width=12)
     info_table.add_column(style="bold white", ratio=1)
 
     git_badge = (
-        "[bold green]CLEAN[/bold green]"
+        Text.from_markup("[bold green]CLEAN[/bold green]")
         if git_info.get("clean")
-        else f"[bold red]DIRTY ({git_info.get('dirty_count')} files)[/bold red]"
+        else Text.from_markup(
+            f"[bold red]DIRTY ({git_info.get('dirty_count')} files)[/bold red]"
+        )
     )
-    branch_str = str(git_info.get("branch", "main"))
-    if len(branch_str) > 22:
-        branch_str = branch_str[:20] + "..."
 
-    repo_str = str(git_info.get("name", "Project"))
-    if len(repo_str) > 22:
-        repo_str = repo_str[:20] + "..."
+    branch_full = str(git_info.get("branch", "main"))
+    branch_display = branch_full[:24] + "..." if len(branch_full) > 26 else branch_full
+
+    repo_full = str(git_info.get("name", "Project"))
+    repo_display = repo_full[:24] + "..." if len(repo_full) > 26 else repo_full
 
     model_display = model or "omniroute/auto (configured)"
 
-    info_table.add_row("Project", repo_str, "Branch", branch_str)
-    info_table.add_row(
-        "Git", git_badge, "State", f"[{status_style}]{state_name}[/{status_style}]"
+    m_style = (
+        "bold green"
+        if mission_status == "COMPLETE"
+        else (
+            "bold yellow"
+            if mission_status == "RUNNING"
+            else (
+                "bold red" if mission_status in ("BLOCKED", "FAILED") else "dim white"
+            )
+        )
     )
+    m_badge = Text.from_markup(f"[{m_style}]{mission_status}[/{m_style}]")
+
+    info_table.add_row("Project", repo_display, "Branch", branch_display)
+    info_table.add_row("Git Status", git_badge, "Mission", m_badge)
     info_table.add_row("Executor", executor, "Route", model_display)
     info_table.add_row("Runtime", elapsed, "HEAD", git_info.get("head", "N/A"))
 
     main_grid = Table.grid(expand=True)
     main_grid.add_row(grid)
-    main_grid.add_row(Text("-" * 70, style="dim #334155"))
+    main_grid.add_row(Text("-" * 72, style="dim #334155"))
     main_grid.add_row(info_table)
 
     return Panel(
@@ -139,56 +154,81 @@ def render_header(
     )
 
 
+def _render_progress_bar(completed: int, total: int, width: int = 16) -> Text:
+    """Render authentic styled character-cell progress bar without raw markup leaks."""
+    bar_text = Text()
+    if total == 0:
+        bar_text.append("[" + "-" * width + "]", style="dim #475569")
+        bar_text.append(" 0% (0/0 tasks)", style="dim white")
+        return bar_text
+
+    pct = int((completed / total) * 100)
+    filled = int((completed / total) * width)
+    unfilled = width - filled
+
+    bar_text.append("[", style="dim white")
+    bar_text.append("=" * filled, style="bold green")
+    if unfilled > 0:
+        bar_text.append("-" * unfilled, style="dim #475569")
+    bar_text.append("]", style="dim white")
+    bar_text.append(f" {pct}% ({completed}/{total} tasks)", style="bold white")
+    return bar_text
+
+
 def render_mission_panel(
     tasks: List[Task], mission_goal: str = "No active mission"
 ) -> Panel:
     """Render mission DAG and progress panel."""
-    table = Table(box=None, expand=True, show_header=False, padding=(0, 1))
-    table.add_column("Icon", width=3)
-    table.add_column("ID", style="bold white", width=16)
-    table.add_column("Status", width=12)
-    table.add_column("Details", style="dim white")
-
     total_tasks = len(tasks)
     completed_tasks = 0
 
-    if not tasks:
-        table.add_row(
-            "o", "No tasks", "[dim]IDLE[/dim]", "Load or run a mission to start"
-        )
-    else:
-        for t in tasks:
-            if t.status == TaskStatus.COMPLETED:
-                icon = "[bold green]+[/bold green]"
-                st = "[bold green]COMPLETE[/bold green]"
-                completed_tasks += 1
-            elif t.status == TaskStatus.RUNNING:
-                icon = "[bold yellow]*[/bold yellow]"
-                st = "[bold yellow]RUNNING[/bold yellow]"
-            elif t.status == TaskStatus.FAILED:
-                icon = "[bold red]X[/bold red]"
-                st = "[bold red]FAILED[/bold red]"
-            elif t.status == TaskStatus.BLOCKED:
-                icon = "[bold red]![/bold red]"
-                st = "[bold red]BLOCKED[/bold red]"
-            else:
-                icon = "[dim white]o[/dim white]"
-                st = "[dim white]PENDING[/dim white]"
-
-            task_title = t.title[:24] + "..." if len(t.title) > 25 else t.title
-            table.add_row(icon, t.id, st, task_title)
-
-    pct = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
-    filled = int(pct / 10)
-    bar = "=" * filled + "-" * (10 - filled)
-    progress_str = f"[bold green][{bar}][/bold green] {pct}% ({completed_tasks}/{total_tasks} tasks)"
-
     grid = Table.grid(expand=True)
     grid.add_row(Text(f"Goal: {mission_goal}", style="italic dim white"))
-    grid.add_row(Text("-" * 36, style="dim #334155"))
-    grid.add_row(table)
-    grid.add_row(Text("-" * 36, style="dim #334155"))
-    grid.add_row(Text(progress_str))
+    grid.add_row(Text("-" * 38, style="dim #334155"))
+
+    if not tasks:
+        empty_box = Table.grid(expand=True, padding=(1, 1))
+        empty_box.add_row(
+            Align.center(
+                Text(
+                    "No active mission — run <mission-file> to start",
+                    style="dim cyan",
+                )
+            )
+        )
+        grid.add_row(empty_box)
+    else:
+        table = Table(box=None, expand=True, show_header=False, padding=(0, 1))
+        table.add_column("Icon", width=3)
+        table.add_column("ID", style="bold white", width=14)
+        table.add_column("Status", width=12)
+        table.add_column("Details", style="dim white")
+
+        for t in tasks:
+            if t.status == TaskStatus.COMPLETED:
+                icon = Text("+", style="bold green")
+                st = Text("COMPLETE", style="bold green")
+                completed_tasks += 1
+            elif t.status == TaskStatus.RUNNING:
+                icon = Text("*", style="bold yellow")
+                st = Text("RUNNING", style="bold yellow")
+            elif t.status == TaskStatus.FAILED:
+                icon = Text("X", style="bold red")
+                st = Text("FAILED", style="bold red")
+            elif t.status == TaskStatus.BLOCKED:
+                icon = Text("!", style="bold red")
+                st = Text("BLOCKED", style="bold red")
+            else:
+                icon = Text("o", style="dim white")
+                st = Text("PENDING", style="dim white")
+
+            task_title = t.title[:22] + "..." if len(t.title) > 24 else t.title
+            table.add_row(icon, t.id, st, task_title)
+
+        grid.add_row(table)
+
+    grid.add_row(Text("-" * 38, style="dim #334155"))
+    grid.add_row(_render_progress_bar(completed_tasks, total_tasks))
 
     return Panel(
         grid,
@@ -201,40 +241,60 @@ def render_mission_panel(
 
 def render_runtime_panel(
     executor_status: str = "READY",
-    attempt: str = "1 / 1",
+    attempt: str = "— / —",
     lock_status: str = "FREE",
     changed_files: int = 0,
     elapsed: str = "00:00:00",
     exec_phase: str = "IDLE",
-    verify_phase: str = "WAITING",
+    verify_phase: str = "IDLE",
+    has_active_mission: bool = False,
 ) -> Panel:
     """Render runtime telemetry panel."""
     table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(style="dim white", width=14)
+    table.add_column(style="dim #94A3B8", width=16)
     table.add_column(style="bold white", justify="right")
 
     lock_badge = (
-        "[bold green]HELD[/bold green]"
+        Text.from_markup("[bold green]HELD[/bold green]")
         if lock_status == "HELD"
-        else "[dim white]FREE[/dim white]"
+        else Text.from_markup("[dim white]FREE[/dim white]")
     )
 
-    table.add_row("OMP Runtime", f"[bold green]{executor_status}[/bold green]")
-    table.add_row("Attempt", attempt)
+    exec_styled = (
+        Text.from_markup(f"[bold yellow]{exec_phase}[/bold yellow]")
+        if exec_phase == "RUNNING"
+        else (
+            Text.from_markup(f"[bold green]{exec_phase}[/bold green]")
+            if exec_phase in ("COMPLETED", "READY")
+            else Text(exec_phase, style="dim white")
+        )
+    )
+
+    verify_styled = (
+        Text.from_markup(f"[bold green]{verify_phase}[/bold green]")
+        if verify_phase == "PASS"
+        else (
+            Text.from_markup(f"[bold yellow]{verify_phase}[/bold yellow]")
+            if verify_phase == "RUNNING"
+            else Text(verify_phase, style="dim white")
+        )
+    )
+
+    table.add_row(
+        "OMP Runtime",
+        Text.from_markup(f"[bold green]{executor_status}[/bold green]"),
+    )
+    table.add_row("Attempt", attempt if has_active_mission else "— / —")
     table.add_row(
         "Execution",
-        f"[bold yellow]{exec_phase}[/bold yellow]"
-        if exec_phase == "RUNNING"
-        else f"[dim white]{exec_phase}[/dim white]",
+        exec_styled if has_active_mission else Text("IDLE", style="dim white"),
     )
     table.add_row(
         "Verification",
-        f"[bold green]{verify_phase}[/bold green]"
-        if verify_phase == "PASS"
-        else f"[dim white]{verify_phase}[/dim white]",
+        verify_styled if has_active_mission else Text("IDLE", style="dim white"),
     )
     table.add_row("Project Lock", lock_badge)
-    table.add_row("Changed Files", f"{changed_files} delta")
+    table.add_row("Changed Files", f"{changed_files} changes")
     table.add_row("Elapsed", elapsed)
 
     return Panel(
@@ -247,25 +307,52 @@ def render_runtime_panel(
 
 
 def render_activity_panel(events: List[Dict[str, Any]], max_events: int = 6) -> Panel:
-    """Render recent activity log panel."""
+    """Render recent activity log panel with semantic coloring."""
     grid = Table.grid(expand=True, padding=(0, 1))
-    grid.add_column(style="dim #94A3B8", width=10)
-    grid.add_column(style="bold white", width=22)
+    grid.add_column(style="dim #64748B", width=10)
+    grid.add_column(width=24)
     grid.add_column(style="dim white", ratio=1)
 
     recent = events[-max_events:] if events else []
     if not recent:
-        grid.add_row("--:--:--", "IDLE", "Awaiting operator commands...")
+        grid.add_row(
+            "--:--:--",
+            Text("IDLE", style="dim #94A3B8"),
+            "Awaiting operator commands...",
+        )
     else:
         for ev in recent:
             ts = time.strftime(
                 "%H:%M:%S", time.localtime(ev.get("timestamp", time.time()))
             )
             ev_type = str(ev.get("event_type", "EVENT"))
-            msg = ev.get("message") or str(ev.get("payload", ""))
-            if len(msg) > 50:
-                msg = msg[:47] + "..."
-            grid.add_row(ts, f"[cyan]{ev_type}[/cyan]", msg)
+
+            if any(
+                k in ev_type for k in ("COMPLETED", "PASSED", "CREATED", "ACQUIRED")
+            ):
+                type_styled = Text(ev_type, style="bold green")
+            elif any(k in ev_type for k in ("STARTED", "READY")):
+                type_styled = Text(ev_type, style="bold cyan")
+            elif "HEARTBEAT" in ev_type:
+                type_styled = Text(ev_type, style="dim #60A5FA")
+            elif any(k in ev_type for k in ("FAILED", "BLOCKED", "CONFLICT")):
+                type_styled = Text(ev_type, style="bold red")
+            elif "RETRY" in ev_type:
+                type_styled = Text(ev_type, style="bold yellow")
+            else:
+                type_styled = Text(ev_type, style="dim white")
+
+            payload = ev.get("payload", {})
+            if ev.get("message"):
+                msg = str(ev["message"])
+            elif isinstance(payload, dict):
+                msg = ", ".join(f"{k}={v}" for k, v in payload.items())
+            else:
+                msg = str(payload)
+
+            if len(msg) > 55:
+                msg = msg[:52] + "..."
+            grid.add_row(ts, type_styled, msg)
 
     return Panel(
         grid,
@@ -319,15 +406,17 @@ def run_doctor(cwd: str | Path = ".") -> None:
         title=f"ASC DevOS v{VERSION} - System Diagnostics",
         box=box.ROUNDED,
         border_style="cyan",
+        expand=True,
     )
     table.add_column("Component", style="bold white", width=22)
-    table.add_column("Status / Path", style="dim white")
+    table.add_column("Status / Full Path", style="dim white")
 
     table.add_row("ASC Core Version", f"[bold green]{VERSION}[/bold green]")
     table.add_row("Python Runtime", f"{platform.python_version()} ({sys.executable})")
     table.add_row("Project Root", git_info["root"])
     table.add_row("Repository Name", git_info["name"])
-    table.add_row("Git Branch / HEAD", f"{git_info['branch']} @ {git_info['head']}")
+    table.add_row("Git Branch", git_info["branch"])
+    table.add_row("Git HEAD Commit", str(git_info.get("full_head", git_info["head"])))
     table.add_row(
         "Git Working Tree",
         "[bold green]CLEAN[/bold green]"
@@ -358,18 +447,26 @@ def run_status_view(cwd: str | Path = ".") -> None:
     mission = state.get_mission(last_mission_id) if last_mission_id else None
     tasks = state.get_tasks(last_mission_id) if last_mission_id else []
 
+    has_active = mission is not None and bool(tasks)
+
     header = render_header(
         git_info=git_info,
-        state_name=mission.status if mission else "READY",
+        state_name="READY"
+        if not has_active
+        else (mission.status if mission else "READY"),
+        mission_status=mission.status if mission else "IDLE",
         model=getattr(mission, "model", None) if mission else None,
         executor=getattr(mission, "executor", "OMP") if mission else "OMP",
     )
     mission_panel = render_mission_panel(
-        tasks, mission_goal=mission.goal if mission else "No mission active"
+        tasks, mission_goal=mission.goal if mission else "No active mission"
     )
     runtime_panel = render_runtime_panel(
-        executor_status="READY" if shutil.which("omp") else "UNAVAILABLE",
-        attempt="1 / 1",
+        executor_status="READY"
+        if (shutil.which("omp") or shutil.which("omp.exe"))
+        else "UNAVAILABLE",
+        attempt="1 / 1" if has_active else "— / —",
+        has_active_mission=has_active,
     )
     events = (
         state.get_events(mission_id=last_mission_id, limit=5) if last_mission_id else []
@@ -407,10 +504,11 @@ def run_logs_view(
         title=f"ASC Mission Event Ledger (Mission: {mid or 'all'})",
         box=box.SIMPLE_HEAVY,
         border_style="cyan",
+        expand=True,
     )
-    table.add_column("Time", style="dim #94A3B8", width=10)
+    table.add_column("Time", style="dim #64748B", width=10)
     table.add_column("Task ID", style="bold white", width=14)
-    table.add_column("Event Type", style="cyan", width=24)
+    table.add_column("Event Type", style="bold cyan", width=26)
     table.add_column("Payload / Details", style="dim white")
 
     for ev in events:
@@ -443,14 +541,19 @@ class InteractiveConsole:
         last_mid = self.state.get_last_mission_id()
         mission = self.state.get_mission(last_mid) if last_mid else None
         tasks = self.state.get_tasks(last_mid) if last_mid else []
+        has_active = mission is not None and bool(tasks)
 
         header = render_header(
-            git_info, state_name=mission.status if mission else "READY"
+            git_info,
+            state_name="READY"
+            if not has_active
+            else (mission.status if mission else "READY"),
+            mission_status=mission.status if mission else "IDLE",
         )
         m_panel = render_mission_panel(
-            tasks, mission_goal=mission.goal if mission else "No mission active"
+            tasks, mission_goal=mission.goal if mission else "No active mission"
         )
-        r_panel = render_runtime_panel()
+        r_panel = render_runtime_panel(has_active_mission=has_active)
         act_panel = render_activity_panel(
             self.state.get_events(mission_id=last_mid, limit=4) if last_mid else []
         )
@@ -498,22 +601,30 @@ class InteractiveConsole:
             console.clear()
         elif cmd == "project":
             git = get_git_info(self.cwd)
-            console.print(f"[bold]Project Root:[/bold] {git['root']}")
-            console.print(f"[bold]Branch:[/bold] {git['branch']} (HEAD: {git['head']})")
+            console.print(f"[bold white]Project Root:[/bold white] {git['root']}")
+            console.print(f"[bold white]Branch:[/bold white] {git['branch']}")
             console.print(
-                f"[bold]Clean:[/bold] {git['clean']} (Dirty: {git['dirty_count']} files)"
+                f"[bold white]HEAD Commit:[/bold white] {git.get('full_head', git['head'])}"
             )
+            clean_str = (
+                "[bold green]CLEAN[/bold green]"
+                if git["clean"]
+                else f"[bold red]DIRTY ({git['dirty_count']} files)[/bold red]"
+            )
+            console.print(f"[bold white]Git Status:[/bold white] {clean_str}")
+            if git["dirty_files"]:
+                console.print(f"[dim]Dirty files: {git['dirty_files']}[/dim]")
         elif cmd == "missions":
             missions = self.state.get_all_missions(limit=10)
             if not missions:
                 console.print("[dim yellow]No missions recorded.[/dim yellow]")
             else:
-                table = Table(title="Recorded Missions", box=box.SIMPLE)
-                table.add_column("Mission ID", style="bold cyan")
-                table.add_column("Goal", style="white")
-                table.add_column("Status", style="bold green")
+                table = Table(title="Recorded Missions", box=box.SIMPLE, expand=True)
+                table.add_column("Mission ID", style="bold cyan", width=18)
+                table.add_column("Goal", style="white", ratio=1)
+                table.add_column("Status", style="bold green", width=12)
                 for m in missions:
-                    table.add_row(m.id, m.goal[:40], m.status)
+                    table.add_row(m.id, m.goal, m.status)
                 console.print(table)
         elif cmd == "run":
             if not args:
@@ -563,7 +674,10 @@ class InteractiveConsole:
     def show_help(self) -> None:
         """Display help sheet."""
         table = Table(
-            title="ASC DevOS Interactive Commands", box=box.ROUNDED, border_style="cyan"
+            title="ASC DevOS Interactive Commands",
+            box=box.ROUNDED,
+            border_style="cyan",
+            expand=True,
         )
         table.add_column("Command", style="bold cyan", width=18)
         table.add_column("Shortcut", style="bold yellow", width=10)
