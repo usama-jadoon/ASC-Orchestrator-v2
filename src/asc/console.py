@@ -29,7 +29,6 @@ if sys.platform == "win32":
             pass
 
 from rich import box
-from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -123,7 +122,9 @@ def render_header(
     repo_full = str(git_info.get("name", "Project"))
     repo_display = repo_full[:24] + "..." if len(repo_full) > 26 else repo_full
 
-    model_display = model or (os.environ.get("OMP_MODEL") or "omniroute/auto (configured)")
+    model_display = model or (
+        os.environ.get("OMP_MODEL") or "omniroute/auto (configured)"
+    )
 
     m_style = (
         "bold green"
@@ -176,8 +177,6 @@ def render_mission_panel(
     """Render structured task table with progress bar."""
     total = len(tasks)
     completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
-    failed = sum(1 for t in tasks if t.status == TaskStatus.FAILED)
-    blocked = sum(1 for t in tasks if t.status == TaskStatus.BLOCKED)
 
     table = Table(
         box=box.SIMPLE_HEAD,
@@ -197,7 +196,10 @@ def render_mission_panel(
         TaskStatus.BLOCKED: ("[bold red]BLOCKED[/bold red]", "BLOCKED"),
         TaskStatus.PENDING: ("[dim white]PENDING[/dim white]", "PENDING"),
         TaskStatus.CANCELLED: ("[dim red]CANCELLED[/dim red]", "CANCELLED"),
-        TaskStatus.INTERRUPTED: ("[bold yellow]INTERRUPTED[/bold yellow]", "INTERRUPTED"),
+        TaskStatus.INTERRUPTED: (
+            "[bold yellow]INTERRUPTED[/bold yellow]",
+            "INTERRUPTED",
+        ),
     }
 
     for task in tasks:
@@ -207,7 +209,9 @@ def render_mission_panel(
         table.add_row(task.id, task.title, Text.from_markup(markup))
 
     if not tasks:
-        table.add_row("-", "No active mission — run <mission-file> to start", "[dim]EMPTY[/dim]")
+        table.add_row(
+            "-", "No active mission — run <mission-file> to start", "[dim]EMPTY[/dim]"
+        )
 
     bar_text = _render_progress_bar(completed, total, width=30)
 
@@ -244,10 +248,14 @@ def render_runtime_panel(
     grid.add_column(style="bold white", ratio=1)
 
     effective_exec_phase = (
-        exec_phase if exec_phase != "IDLE" else ("RUNNING" if has_active_mission else "IDLE")
+        exec_phase
+        if exec_phase != "IDLE"
+        else ("RUNNING" if has_active_mission else "IDLE")
     )
     effective_verify_phase = (
-        verify_phase if verify_phase != "IDLE" else ("PASSING" if has_active_mission else "IDLE")
+        verify_phase
+        if verify_phase != "IDLE"
+        else ("PASSING" if has_active_mission else "IDLE")
     )
 
     grid.add_row("Executor Engine", executor_status)
@@ -296,8 +304,10 @@ def render_activity_panel(events: List[Dict[str, Any]]) -> Panel:
             )
             payload = ev.get("payload", {})
             if isinstance(payload, dict):
-                msg = payload.get("message") or payload.get("title") or (
-                    ", ".join(f"{k}={v}" for k, v in payload.items())
+                msg = (
+                    payload.get("message")
+                    or payload.get("title")
+                    or (", ".join(f"{k}={v}" for k, v in payload.items()))
                 )
             else:
                 msg = str(payload)
@@ -382,7 +392,10 @@ def run_doctor(cwd: str | Path = ".", as_json: bool = False) -> None:
     table.add_row("Project Root", snapshot["git"]["root"])
     table.add_row("Repository Name", snapshot["git"]["name"])
     table.add_row("Git Branch", snapshot["git"]["branch"])
-    table.add_row("Git HEAD Commit", str(snapshot["git"].get("full_head", snapshot["git"]["head"])))
+    table.add_row(
+        "Git HEAD Commit",
+        str(snapshot["git"].get("full_head", snapshot["git"]["head"])),
+    )
     table.add_row(
         "Git Working Tree",
         "[bold green]CLEAN[/bold green]"
@@ -444,7 +457,9 @@ def get_status_snapshot(cwd: str | Path = ".") -> Dict[str, Any]:
             {
                 "id": t.id,
                 "title": t.title,
-                "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+                "status": t.status.value
+                if hasattr(t.status, "value")
+                else str(t.status),
                 "depends_on": t.depends_on,
                 "commit_sha": t.commit_sha,
             }

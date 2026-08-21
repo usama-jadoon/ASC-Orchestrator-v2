@@ -21,7 +21,6 @@ from .console import (
     run_status_view,
 )
 from .driver import MissionDriver
-from .repo import Repository
 from .spec import MissionSpecParser
 from .state import State
 
@@ -214,7 +213,16 @@ class CLI:
             state = State(self.db_path, cwd=cwd)
             state.save_mission(spec)
             if as_json:
-                print(json.dumps({"status": "ok", "mission_id": spec.id, "tasks": len(spec.tasks)}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "status": "ok",
+                            "mission_id": spec.id,
+                            "tasks": len(spec.tasks),
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console.print(
                     f"[bold green]Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database.[/bold green]"
@@ -226,12 +234,22 @@ class CLI:
                 console.print(f"[bold red]Error initializing mission:[/bold red] {e}")
             sys.exit(1)
 
-    def _validate_mission(self, file_path: str, cwd: Path, as_json: bool = False) -> None:
+    def _validate_mission(
+        self, file_path: str, cwd: Path, as_json: bool = False
+    ) -> None:
         """Validate a mission file specification and DAG validity."""
         path = cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not path.exists():
             if as_json:
-                print(json.dumps({"status": "error", "error": f"Mission file '{path}' not found"}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "status": "error",
+                            "error": f"Mission file '{path}' not found",
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console.print(
                     f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
@@ -242,12 +260,17 @@ class CLI:
             spec = MissionSpecParser.from_file(path)
             warnings = MissionSpecParser.validate(spec)
             if as_json:
-                print(json.dumps({
-                    "status": "valid" if not warnings else "warning",
-                    "mission_id": spec.id,
-                    "tasks_count": len(spec.tasks),
-                    "warnings": warnings,
-                }, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "status": "valid" if not warnings else "warning",
+                            "mission_id": spec.id,
+                            "tasks_count": len(spec.tasks),
+                            "warnings": warnings,
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console.print(
                     f"[bold green]SUCCESS: Mission '{spec.id}' validation passed![/bold green] "
@@ -260,12 +283,22 @@ class CLI:
                 console.print(f"[bold red]Validation ERROR:[/bold red] {e}")
             sys.exit(1)
 
-    def _run_mission(self, args: argparse.Namespace, cwd: Path, as_json: bool = False) -> None:
+    def _run_mission(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
         """Execute a mission end-to-end with centralized driver preflight."""
         path = cwd / args.file if not Path(args.file).is_absolute() else Path(args.file)
         if not path.exists():
             if as_json:
-                print(json.dumps({"status": "error", "error": f"Mission file '{path}' not found"}, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "status": "error",
+                            "error": f"Mission file '{path}' not found",
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console.print(
                     f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
@@ -323,7 +356,9 @@ class CLI:
                 console.print(f"[bold red]Error running mission:[/bold red] {e}")
             sys.exit(1)
 
-    def _show_status(self, args: argparse.Namespace, cwd: Path, as_json: bool = False) -> None:
+    def _show_status(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
         """Display status view."""
         if getattr(args, "watch", False) and not as_json:
             try:
@@ -336,7 +371,9 @@ class CLI:
         else:
             run_status_view(cwd=cwd, as_json=as_json)
 
-    def _resume_mission(self, args: argparse.Namespace, cwd: Path, as_json: bool = False) -> None:
+    def _resume_mission(
+        self, args: argparse.Namespace, cwd: Path, as_json: bool = False
+    ) -> None:
         """Resume an interrupted mission."""
         state = State(self.db_path, cwd=cwd)
         target_id = (
@@ -346,14 +383,22 @@ class CLI:
         )
         if not target_id:
             if as_json:
-                print(json.dumps({"status": "error", "error": "No mission to resume"}, indent=2))
+                print(
+                    json.dumps(
+                        {"status": "error", "error": "No mission to resume"}, indent=2
+                    )
+                )
             else:
                 console.print("[bold red]No mission to resume.[/bold red]")
             sys.exit(1)
 
         if not as_json:
             console.print(f"[bold green]Resuming mission '{target_id}'...[/bold green]")
-        driver = MissionDriver(state, mission_id=target_id, working_directory=str(cwd) if args.cwd else None)
+        driver = MissionDriver(
+            state,
+            mission_id=target_id,
+            working_directory=str(cwd) if args.cwd else None,
+        )
         result = driver.run(target_id)
         if as_json:
             print(json.dumps(result, indent=2))

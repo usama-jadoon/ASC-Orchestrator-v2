@@ -176,10 +176,6 @@ class State:
                 # Migrate from v1 (single task id PK) to v2 (composite PK mission_id, id)
                 cursor.execute("PRAGMA foreign_keys = OFF")
 
-                # Check if tasks table needs migration
-                cursor.execute("PRAGMA table_info(tasks)")
-                columns = {col["name"] for col in cursor.fetchall()}
-
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS tasks_v2 (
                         id TEXT NOT NULL,
@@ -226,12 +222,16 @@ class State:
                 att_cols = {col["name"] for col in cursor.fetchall()}
                 if "mission_id" not in att_cols:
                     try:
-                        cursor.execute("ALTER TABLE attempts ADD COLUMN mission_id TEXT")
+                        cursor.execute(
+                            "ALTER TABLE attempts ADD COLUMN mission_id TEXT"
+                        )
                     except sqlite3.OperationalError:
                         pass
                 if "duration" not in att_cols:
                     try:
-                        cursor.execute("ALTER TABLE attempts ADD COLUMN duration REAL DEFAULT 0.0")
+                        cursor.execute(
+                            "ALTER TABLE attempts ADD COLUMN duration REAL DEFAULT 0.0"
+                        )
                     except sqlite3.OperationalError:
                         pass
                 if "log_path" not in att_cols:
@@ -252,14 +252,24 @@ class State:
                 ]:
                     if col_name not in m_cols:
                         try:
-                            cursor.execute(f"ALTER TABLE missions ADD COLUMN {col_name} {col_type}")
+                            cursor.execute(
+                                f"ALTER TABLE missions ADD COLUMN {col_name} {col_type}"
+                            )
                         except sqlite3.OperationalError:
                             pass
 
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_mission ON tasks(mission_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_attempts_task ON attempts(task_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_attempts_mission ON attempts(mission_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_mission ON events(mission_id)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tasks_mission ON tasks(mission_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_attempts_task ON attempts(task_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_attempts_mission ON attempts(mission_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_events_mission ON events(mission_id)"
+                )
                 cursor.execute("PRAGMA user_version = 2")
                 conn.commit()
 
@@ -310,10 +320,16 @@ class State:
             goal = str(spec["goal"])
             defaults = spec.get("defaults", {})
             executor = spec.get("executor") or defaults.get("executor")
-            working_directory = spec.get("working_directory") or defaults.get("working_directory")
+            working_directory = spec.get("working_directory") or defaults.get(
+                "working_directory"
+            )
             model = spec.get("model") or defaults.get("model")
-            exec_timeout = spec.get("execution_timeout") or defaults.get("execution_timeout")
-            verify_timeout = spec.get("verification_timeout") or defaults.get("verification_timeout")
+            exec_timeout = spec.get("execution_timeout") or defaults.get(
+                "execution_timeout"
+            )
+            verify_timeout = spec.get("verification_timeout") or defaults.get(
+                "verification_timeout"
+            )
             max_attempts = defaults.get("max_attempts", 3)
             tasks = spec.get("tasks", [])
 
@@ -321,7 +337,10 @@ class State:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             # Check if mission already exists
-            cursor.execute("SELECT id, status, created_at FROM missions WHERE id = ?", (mission_id,))
+            cursor.execute(
+                "SELECT id, status, created_at FROM missions WHERE id = ?",
+                (mission_id,),
+            )
             existing = cursor.fetchone()
             if existing:
                 # Update mission metadata without resetting status to PENDING if already running/complete
@@ -332,7 +351,17 @@ class State:
                         model = ?, execution_timeout = ?, verification_timeout = ?, max_attempts = ?
                     WHERE id = ?
                     """,
-                    (goal, now, executor, working_directory, model, exec_timeout, verify_timeout, max_attempts, mission_id),
+                    (
+                        goal,
+                        now,
+                        executor,
+                        working_directory,
+                        model,
+                        exec_timeout,
+                        verify_timeout,
+                        max_attempts,
+                        mission_id,
+                    ),
                 )
             else:
                 cursor.execute(
@@ -341,7 +370,19 @@ class State:
                                          model, execution_timeout, verification_timeout, max_attempts)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (mission_id, goal, "PENDING", now, now, executor, working_directory, model, exec_timeout, verify_timeout, max_attempts),
+                    (
+                        mission_id,
+                        goal,
+                        "PENDING",
+                        now,
+                        now,
+                        executor,
+                        working_directory,
+                        model,
+                        exec_timeout,
+                        verify_timeout,
+                        max_attempts,
+                    ),
                 )
             conn.commit()
 
@@ -524,7 +565,9 @@ class State:
             rows = cursor.fetchall()
             return [self._row_to_task(row) for row in rows]
 
-    def get_task(self, task_id: str, mission_id: Optional[str] = None) -> Optional[Task]:
+    def get_task(
+        self, task_id: str, mission_id: Optional[str] = None
+    ) -> Optional[Task]:
         """Retrieve a task by ID, optionally scoped by mission_id."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -600,7 +643,9 @@ class State:
             cursor.execute(query, params)
             conn.commit()
 
-    def increment_attempt_count(self, task_id: str, mission_id: Optional[str] = None) -> int:
+    def increment_attempt_count(
+        self, task_id: str, mission_id: Optional[str] = None
+    ) -> int:
         """Durably increment and return the attempt count for a task."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -618,7 +663,9 @@ class State:
                     "UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?",
                     (task_id,),
                 )
-                cursor.execute("SELECT attempt_count FROM tasks WHERE id = ?", (task_id,))
+                cursor.execute(
+                    "SELECT attempt_count FROM tasks WHERE id = ?", (task_id,)
+                )
 
             row = cursor.fetchone()
             conn.commit()
@@ -685,7 +732,9 @@ class State:
             timestamp = kwargs.get("timestamp") or (
                 args[6] if len(args) > 6 else time.time()
             )
-            mission_id = kwargs.get("mission_id") or (args[7] if len(args) > 7 else None)
+            mission_id = kwargs.get("mission_id") or (
+                args[7] if len(args) > 7 else None
+            )
             duration = kwargs.get("duration", 0.0)
             log_path = kwargs.get("log_path")
             attempt_id = (
@@ -717,7 +766,9 @@ class State:
             )
             conn.commit()
 
-    def get_attempts(self, task_id: str, mission_id: Optional[str] = None) -> List[AttemptRecord]:
+    def get_attempts(
+        self, task_id: str, mission_id: Optional[str] = None
+    ) -> List[AttemptRecord]:
         """Retrieve attempt history for a task."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -744,7 +795,9 @@ class State:
                     stdout=row["stdout"] if row["stdout"] else "",
                     stderr=row["stderr"] if row["stderr"] else "",
                     timestamp=row["timestamp"],
-                    duration=row["duration"] if "duration" in keys and row["duration"] else 0.0,
+                    duration=row["duration"]
+                    if "duration" in keys and row["duration"]
+                    else 0.0,
                     log_path=row["log_path"] if "log_path" in keys else None,
                 )
                 for row in rows

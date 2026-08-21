@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 from .adapters.mock import MockAdapter
 from .adapters.omp import OMPAdapter
@@ -22,7 +22,6 @@ from .models import (
     SchedulerState,
     Task,
     TaskStatus,
-    VerificationCommand,
 )
 from .repo import Repository
 from .state import State
@@ -182,9 +181,8 @@ class MissionDriver:
                 else build_adapter(self.executor, self.execution_timeout)
             )
 
-            self._max_attempts = (
-                kwargs.get("max_attempts")
-                or (getattr(spec_defaults, "max_attempts", 3) if spec_defaults else 3)
+            self._max_attempts = kwargs.get("max_attempts") or (
+                getattr(spec_defaults, "max_attempts", 3) if spec_defaults else 3
             )
             self.model = (
                 kwargs.get("model")
@@ -411,13 +409,15 @@ class MissionDriver:
         last_exit_code = 1
         last_delta: List[str] = []
 
-        raw_wd = (
-            task.working_directory
-            or self.working_directory
-            or getattr(self, "spec_working_directory", None)
-        )
-        task_repo = Repository(raw_wd) if raw_wd else self.repository
-        effective_cwd = str(raw_wd) if raw_wd else str(task_repo.path)
+        if task.working_directory:
+            task_repo = Repository(task.working_directory)
+            effective_cwd = task.working_directory
+        elif self.working_directory and self.working_directory != ".":
+            task_repo = Repository(self.working_directory)
+            effective_cwd = self.working_directory
+        else:
+            task_repo = self.repository
+            effective_cwd = str(self.repository.path)
 
         task_model = (
             task.model or getattr(self, "model", None) or os.environ.get("OMP_MODEL")
@@ -555,7 +555,6 @@ class MissionDriver:
             # Stage 2: VERIFY with multi-command support
             verify_commands = task.commands or ([task.command] if task.command else [])
             if verify_commands:
-                effective_cwd = str(task_repo.path)
                 self._emit(
                     EventType.VERIFICATION_STARTED,
                     task_id=task.id,
@@ -598,7 +597,10 @@ class MissionDriver:
                     self._emit(
                         EventType.VERIFICATION_PASSED,
                         task_id=task.id,
-                        payload={"attempt": attempt, "duration": getattr(vr, "duration", 0.0)},
+                        payload={
+                            "attempt": attempt,
+                            "duration": getattr(vr, "duration", 0.0),
+                        },
                     )
                 else:
                     self._emit(
@@ -649,12 +651,12 @@ class MissionDriver:
             mission_id=self.mission_id,
         )
 
-        repo_dir = (
-            task.working_directory
-            or self.working_directory
-            or getattr(self, "spec_working_directory", None)
-        )
-        task_repo = Repository(repo_dir) if repo_dir else self.repository
+        if task.working_directory:
+            task_repo = Repository(task.working_directory)
+        elif self.working_directory and self.working_directory != ".":
+            task_repo = Repository(self.working_directory)
+        else:
+            task_repo = self.repository
 
         if task_repo.has_changes():
             commit_msg = f"feat({task.id}): {task.title}"
@@ -665,7 +667,9 @@ class MissionDriver:
             )
             sha = task_repo.commit_scoped(
                 commit_msg,
-                paths=task_delta if (task_delta is not None and len(task_delta) > 0) else None,
+                paths=task_delta
+                if (task_delta is not None and len(task_delta) > 0)
+                else None,
                 commit_paths_filter=task.commit_paths,
             )
             task.commit_sha = sha

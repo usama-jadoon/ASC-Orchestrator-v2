@@ -46,11 +46,15 @@ def terminate_process_tree(pid: int) -> None:
             pass
     else:
         try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGKILL)
+            sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+            if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                pgid = getattr(os, "getpgid")(pid)
+                getattr(os, "killpg")(pgid, sigkill)
+            else:
+                os.kill(pid, sigkill)
         except Exception:
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, signal.SIGTERM)
             except Exception:
                 pass
 
@@ -163,7 +167,9 @@ class OMPAdapter(AgentAdapter):
             cmd.append(task.prompt)
 
             # If subprocess.run is mocked in a unit test environment, invoke it directly
-            if isinstance(subprocess.run, MagicMock) or hasattr(subprocess.run, "assert_called"):
+            if isinstance(subprocess.run, MagicMock) or hasattr(
+                subprocess.run, "assert_called"
+            ):
                 res = subprocess.run(
                     cmd,
                     cwd=work_dir if work_dir != "." else None,
@@ -172,10 +178,14 @@ class OMPAdapter(AgentAdapter):
                     timeout=timeout,
                 )
                 return VerificationResult(
-                    command=VerificationCommand(command=" ".join(shlex.quote(c) for c in cmd)),
+                    command=VerificationCommand(
+                        command=" ".join(shlex.quote(c) for c in cmd)
+                    ),
                     stdout=getattr(res, "stdout", "") or "",
                     stderr=getattr(res, "stderr", "") or "",
-                    exit_code=getattr(res, "returncode", 0) if getattr(res, "returncode", None) is not None else 0,
+                    exit_code=getattr(res, "returncode", 0)
+                    if getattr(res, "returncode", None) is not None
+                    else 0,
                     duration=0.0,
                 )
 
@@ -238,7 +248,6 @@ class OMPAdapter(AgentAdapter):
             full_stderr = "".join(stderr_chunks)
 
             # Persist durable attempt log file if large
-            log_path: Optional[str] = None
             if len(full_stdout) + len(full_stderr) > 50_000:
                 try:
                     log_dir = Path(work_dir) / ".git" / "asc" / "logs"
@@ -248,7 +257,6 @@ class OMPAdapter(AgentAdapter):
                         f"=== STDOUT ===\n{full_stdout}\n=== STDERR ===\n{full_stderr}",
                         encoding="utf-8",
                     )
-                    log_path = str(log_file)
                 except Exception:
                     pass
 

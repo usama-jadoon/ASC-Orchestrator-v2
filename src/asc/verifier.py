@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from .models import VerificationCommand, VerificationResult
 
@@ -22,7 +22,7 @@ class Verifier:
 
     def run_verification(
         self,
-        commands: List[Union[str, VerificationCommand]],
+        commands: Sequence[Union[str, VerificationCommand]],
         cwd: str = ".",
         timeout: Optional[int] = None,
     ) -> VerificationResult:
@@ -31,8 +31,10 @@ class Verifier:
         Stops on first command failure (fail-fast).
         """
         if not commands:
-            cmd = VerificationCommand(command="true")
-            return VerificationResult(command=cmd, exit_code=0, stdout="", stderr="", duration=0.0)
+            default_cmd = VerificationCommand(command="true")
+            return VerificationResult(
+                command=default_cmd, exit_code=0, stdout="", stderr="", duration=0.0
+            )
 
         overall_timeout = timeout if timeout is not None else self.timeout
         results: List[Dict[str, Any]] = []
@@ -40,17 +42,18 @@ class Verifier:
         combined_stderr: List[str] = []
         total_duration = 0.0
         final_exit_code = 0
-        last_cmd_obj: VerificationCommand = (
-            commands[0]
-            if isinstance(commands[0], VerificationCommand)
-            else VerificationCommand(command=commands[0])
-        )
 
-        for i, cmd in enumerate(commands):
-            if isinstance(cmd, str):
-                cmd_obj = VerificationCommand(command=cmd)
+        first_cmd = commands[0]
+        if isinstance(first_cmd, VerificationCommand):
+            last_cmd_obj: VerificationCommand = first_cmd
+        else:
+            last_cmd_obj = VerificationCommand(command=str(first_cmd))
+
+        for cmd in commands:
+            if isinstance(cmd, VerificationCommand):
+                cmd_obj: VerificationCommand = cmd
             else:
-                cmd_obj = cmd
+                cmd_obj = VerificationCommand(command=str(cmd))
             last_cmd_obj = cmd_obj
 
             cmd_timeout = (

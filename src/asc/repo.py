@@ -185,7 +185,9 @@ class Repository:
             return None
 
         # If paths not explicitly provided or empty, discover current dirty files
-        files_to_stage = paths if (paths is not None and len(paths) > 0) else self.get_dirty_files()
+        files_to_stage = (
+            paths if (paths is not None and len(paths) > 0) else self.get_dirty_files()
+        )
         if not files_to_stage:
             return None
 
@@ -259,7 +261,9 @@ class Repository:
                         parent = p.parent
                         if parent != self.path and parent.exists():
                             try:
-                                os.rmdir(parent)  # Only succeeds if directory is completely empty
+                                os.rmdir(
+                                    parent
+                                )  # Only succeeds if directory is completely empty
                             except OSError:
                                 pass
                 except Exception:

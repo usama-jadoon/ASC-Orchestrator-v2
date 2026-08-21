@@ -99,9 +99,7 @@ class ReleaseVerifier:
                 detail=f"pyproject.toml version {version!r} != {PRODUCTION_VERSION!r}",
             )
         except Exception as exc:
-            return ReleaseGate(
-                name="version", passed=False, detail=str(exc)
-            )
+            return ReleaseGate(name="version", passed=False, detail=str(exc))
 
     def verify_package_entry_points(self) -> ReleaseGate:
         """Gate 2: Verify asc console script entry point exists in pyproject.toml."""
@@ -129,9 +127,7 @@ class ReleaseVerifier:
                 detail=f"scripts.asc is {asc_script!r}, expected {CONSOLE_ENTRY_POINT!r}",
             )
         except Exception as exc:
-            return ReleaseGate(
-                name="entry_points", passed=False, detail=str(exc)
-            )
+            return ReleaseGate(name="entry_points", passed=False, detail=str(exc))
 
     def verify_runtime_modules(
         self, modules: Iterable[str] = RUNTIME_MODULES
