@@ -9,16 +9,15 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Dict, Optional
 
 from .adapters.mock import MockAdapter
 from .adapters.omp import OMPAdapter
 from .adapters.shell import ShellAdapter
 from .dag import evaluate_mission, get_runnable_tasks
-from .events import Event, EventEmitter, EventListener, EventType
+from .events import Event, EventEmitter, EventType
 from .lock import LockConflictError, ProjectLock
 from .models import (
-    AttemptRecord,
     SchedulerState,
     Task,
     TaskStatus,
@@ -96,14 +95,14 @@ class MissionDriver:
             else:
                 self.adapter = build_adapter(self.executor, self.execution_timeout)
 
-            self.repository = kwargs.get("repository", Repository(self.working_directory or "."))
+            self.repository = kwargs.get(
+                "repository", Repository(self.working_directory or ".")
+            )
             self._max_attempts = kwargs.get("max_attempts", 3)
             self.model = kwargs.get("model")
         else:
             spec = kwargs.get("spec") or (args[0] if args else None)
-            db_path = kwargs.get("db_path") or (
-                args[1] if len(args) > 1 else None
-            )
+            db_path = kwargs.get("db_path") or (args[1] if len(args) > 1 else None)
             adapter = kwargs.get("adapter") or None
             timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 600)
 
@@ -124,18 +123,28 @@ class MissionDriver:
             self.execution_timeout = (
                 kwargs.get("execution_timeout")
                 or (getattr(spec, "execution_timeout", None) if spec else None)
-                or (getattr(spec_defaults, "execution_timeout", None) if spec_defaults else None)
+                or (
+                    getattr(spec_defaults, "execution_timeout", None)
+                    if spec_defaults
+                    else None
+                )
                 or timeout
             )
             self.verification_timeout = (
                 kwargs.get("verification_timeout")
                 or (getattr(spec, "verification_timeout", None) if spec else None)
-                or (getattr(spec_defaults, "verification_timeout", None) if spec_defaults else None)
+                or (
+                    getattr(spec_defaults, "verification_timeout", None)
+                    if spec_defaults
+                    else None
+                )
                 or 300
             )
 
             self.adapter = adapter or (
-                args[2] if len(args) > 2 else build_adapter(self.executor, self.execution_timeout)
+                args[2]
+                if len(args) > 2
+                else build_adapter(self.executor, self.execution_timeout)
             )
 
             if spec_defaults:
@@ -154,17 +163,27 @@ class MissionDriver:
                 or (getattr(spec_defaults, "model", None) if spec_defaults else None)
             )
 
-            self.repository = Repository(self.working_directory or getattr(self, "spec_working_directory", None) or ".")
+            self.repository = Repository(
+                self.working_directory
+                or getattr(self, "spec_working_directory", None)
+                or "."
+            )
 
             if spec:
-                self.state.create_mission(spec)
+                self.state.save_mission(spec)
                 self.mission_id = spec.id if hasattr(spec, "id") else spec.get("id")
             else:
                 self.mission_id = self.state.get_last_mission_id()
 
         self.verifier = Verifier(timeout=self.verification_timeout)
 
-    def _emit(self, event_type: EventType, task_id: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, message: str = "") -> None:
+    def _emit(
+        self,
+        event_type: EventType,
+        task_id: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        message: str = "",
+    ) -> None:
         """Emit domain event and record in state."""
         event = Event(
             event_type=event_type,
@@ -197,13 +216,15 @@ class MissionDriver:
         }
 
         # Resolve repository and lock directory
-        target_dir = (
-            self.working_directory
-            or getattr(self, "spec_working_directory", None)
-            or "."
+        target_dir = self.working_directory or getattr(
+            self, "spec_working_directory", None
         )
-        repo = Repository(target_dir)
-        lock_dir = repo.get_root_dir() / ".git" / "asc" if repo.is_git_repo() else Path(target_dir) / ".asc"
+        repo = Repository(target_dir) if target_dir else self.repository
+        lock_dir = (
+            repo.get_root_dir() / ".git" / "asc"
+            if repo.is_git_repo()
+            else Path(target_dir or ".") / ".asc"
+        )
 
         lock = ProjectLock(lock_dir=lock_dir, mission_id=self.mission_id)
         try:
@@ -216,7 +237,14 @@ class MissionDriver:
             raise
 
         try:
-            self._emit(EventType.MISSION_STARTED, payload={"mission_id": self.mission_id, "executor": self.executor, "model": self.model})
+            self._emit(
+                EventType.MISSION_STARTED,
+                payload={
+                    "mission_id": self.mission_id,
+                    "executor": self.executor,
+                    "model": self.model,
+                },
+            )
             self.state.update_mission_status(self.mission_id or "", "RUNNING")
 
             outcome = self._evaluate()
@@ -231,7 +259,9 @@ class MissionDriver:
                 if task is None:
                     break
 
-                self._emit(EventType.TASK_READY, task_id=task.id, payload={"title": task.title})
+                self._emit(
+                    EventType.TASK_READY, task_id=task.id, payload={"title": task.title}
+                )
                 is_success, exit_code = self._execute_task_with_retry(task)
 
                 if is_success:
@@ -241,8 +271,14 @@ class MissionDriver:
                         result["git_commits"].append(task.commit_sha)
                 else:
                     task.status = TaskStatus.FAILED
-                    self.state.update_task_status(task.id, TaskStatus.FAILED, exit_code=exit_code)
-                    self._emit(EventType.TASK_FAILED, task_id=task.id, payload={"exit_code": exit_code})
+                    self.state.update_task_status(
+                        task.id, TaskStatus.FAILED, exit_code=exit_code
+                    )
+                    self._emit(
+                        EventType.TASK_FAILED,
+                        task_id=task.id,
+                        payload={"exit_code": exit_code},
+                    )
                     result["tasks_failed"] = int(result["tasks_failed"]) + 1
                     self._block_task(task)
                     result["tasks_blocked"] = int(result["tasks_blocked"]) + 1
@@ -250,14 +286,22 @@ class MissionDriver:
                 outcome = self._evaluate()
 
             final_state = outcome["state"]
-            status_str = final_state.value if hasattr(final_state, "value") else str(final_state)
+            status_str = (
+                final_state.value if hasattr(final_state, "value") else str(final_state)
+            )
             result["final_status"] = status_str
 
             if status_str == "COMPLETE":
-                self._emit(EventType.MISSION_COMPLETED, payload={"tasks_completed": result["tasks_completed"]})
+                self._emit(
+                    EventType.MISSION_COMPLETED,
+                    payload={"tasks_completed": result["tasks_completed"]},
+                )
                 self.state.update_mission_status(self.mission_id or "", "COMPLETE")
             else:
-                self._emit(EventType.MISSION_BLOCKED, payload={"tasks_blocked": result["tasks_blocked"]})
+                self._emit(
+                    EventType.MISSION_BLOCKED,
+                    payload={"tasks_blocked": result["tasks_blocked"]},
+                )
                 self.state.update_mission_status(self.mission_id or "", "BLOCKED")
 
             return result
@@ -281,15 +325,16 @@ class MissionDriver:
             task.working_directory
             or self.working_directory
             or getattr(self, "spec_working_directory", None)
-            or "."
         )
-        task_repo = Repository(repo_dir)
+        task_repo = Repository(repo_dir) if repo_dir else self.repository
 
         task_model = (
             task.model or getattr(self, "model", None) or os.environ.get("OMP_MODEL")
         )
         exec_timeout = task.execution_timeout or self.execution_timeout
-        verify_timeout = (task.command.timeout if task.command else None) or self.verification_timeout
+        verify_timeout = (
+            task.command.timeout if task.command else None
+        ) or self.verification_timeout
 
         def heartbeat(elapsed: float):
             self._emit(
@@ -299,7 +344,7 @@ class MissionDriver:
             )
 
         context = {
-            "working_directory": repo_dir,
+            "working_directory": repo_dir or ".",
             "model": task_model,
             "execution_timeout": exec_timeout,
             "heartbeat_callback": heartbeat,
@@ -310,17 +355,27 @@ class MissionDriver:
 
             task.status = TaskStatus.RUNNING
             task.started_at = time.time()
-            self.state.update_task_status(task.id, TaskStatus.RUNNING, started_at=task.started_at)
+            self.state.update_task_status(
+                task.id, TaskStatus.RUNNING, started_at=task.started_at
+            )
 
             self._emit(
                 EventType.TASK_STARTED,
                 task_id=task.id,
-                payload={"title": task.title, "attempt": attempt, "max_attempts": max_attempts, "executor": task.executor or self.executor, "model": task_model},
+                payload={
+                    "title": task.title,
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "executor": task.executor or self.executor,
+                    "model": task_model,
+                },
                 message=f"Starting task '{task.id}' attempt {attempt}/{max_attempts}",
             )
 
             # Capture baseline dirty state before this attempt
-            baseline_dirty = set(task_repo.get_dirty_files()) if task_repo.is_git_repo() else set()
+            baseline_dirty = (
+                set(task_repo.get_dirty_files()) if task_repo.is_git_repo() else set()
+            )
 
             # Stage 1: EXECUTE via adapter
             if task.executor and task.executor.lower() != self.executor.lower():
@@ -328,7 +383,14 @@ class MissionDriver:
             else:
                 task_adapter = self.adapter
 
-            self._emit(EventType.EXECUTOR_STARTED, task_id=task.id, payload={"attempt": attempt, "executor": task.executor or self.executor})
+            self._emit(
+                EventType.EXECUTOR_STARTED,
+                task_id=task.id,
+                payload={
+                    "attempt": attempt,
+                    "executor": task.executor or self.executor,
+                },
+            )
             adapter_res = task_adapter.execute(task, context)
             exec_exit = getattr(adapter_res, "exit_code", 1)
             exec_stdout = getattr(adapter_res, "stdout", "")
@@ -336,9 +398,21 @@ class MissionDriver:
             exec_success = exec_exit == 0
 
             if exec_success:
-                self._emit(EventType.EXECUTOR_COMPLETED, task_id=task.id, payload={"attempt": attempt, "exit_code": 0})
+                self._emit(
+                    EventType.EXECUTOR_COMPLETED,
+                    task_id=task.id,
+                    payload={"attempt": attempt, "exit_code": 0},
+                )
             else:
-                self._emit(EventType.EXECUTOR_FAILED, task_id=task.id, payload={"attempt": attempt, "exit_code": exec_exit, "stderr": exec_stderr[:300]})
+                self._emit(
+                    EventType.EXECUTOR_FAILED,
+                    task_id=task.id,
+                    payload={
+                        "attempt": attempt,
+                        "exit_code": exec_exit,
+                        "stderr": exec_stderr[:300],
+                    },
+                )
 
             # Record attempt
             self.state.record_attempt(
@@ -352,10 +426,16 @@ class MissionDriver:
             )
 
             # Discover delta files produced by this attempt
-            current_dirty = set(task_repo.get_dirty_files()) if task_repo.is_git_repo() else set()
+            current_dirty = (
+                set(task_repo.get_dirty_files()) if task_repo.is_git_repo() else set()
+            )
             task_delta = sorted(current_dirty - baseline_dirty)
             if task_delta:
-                self._emit(EventType.GIT_CHANGESET_DETECTED, task_id=task.id, payload={"delta_files": task_delta})
+                self._emit(
+                    EventType.GIT_CHANGESET_DETECTED,
+                    task_id=task.id,
+                    payload={"delta_files": task_delta},
+                )
 
             if not exec_success:
                 last_exit_code = exec_exit
@@ -363,17 +443,32 @@ class MissionDriver:
                 if task_delta:
                     task_repo.rollback_attempt(task_delta)
                 if attempt < max_attempts:
-                    self._emit(EventType.TASK_RETRY, task_id=task.id, payload={"attempt": attempt, "next_attempt": attempt + 1})
+                    self._emit(
+                        EventType.TASK_RETRY,
+                        task_id=task.id,
+                        payload={"attempt": attempt, "next_attempt": attempt + 1},
+                    )
                 continue
 
             # Stage 2: VERIFY if task has verification command
             if task.command and task.command.command:
-                effective_cwd = str(repo_dir)
-                self._emit(EventType.VERIFICATION_STARTED, task_id=task.id, payload={"command": task.command.command})
-                vr = self.verifier.run_verification(
-                    [task.command],
-                    cwd=effective_cwd,
+                effective_cwd = str(repo_dir or (task_repo.path if task_repo else "."))
+                self._emit(
+                    EventType.VERIFICATION_STARTED,
+                    task_id=task.id,
+                    payload={"command": task.command.command},
                 )
+                try:
+                    vr = self.verifier.run_verification(
+                        [task.command],
+                        cwd=effective_cwd,
+                        timeout=verify_timeout,
+                    )
+                except TypeError:
+                    vr = self.verifier.run_verification(
+                        [task.command],
+                        cwd=effective_cwd,
+                    )
                 verify_exit = vr.exit_code
                 verify_stdout = vr.stdout
                 verify_stderr = vr.stderr
@@ -389,15 +484,31 @@ class MissionDriver:
                 )
 
                 if vr.success:
-                    self._emit(EventType.VERIFICATION_PASSED, task_id=task.id, payload={"attempt": attempt})
+                    self._emit(
+                        EventType.VERIFICATION_PASSED,
+                        task_id=task.id,
+                        payload={"attempt": attempt},
+                    )
                 else:
-                    self._emit(EventType.VERIFICATION_FAILED, task_id=task.id, payload={"attempt": attempt, "exit_code": verify_exit, "stderr": verify_stderr[:300]})
+                    self._emit(
+                        EventType.VERIFICATION_FAILED,
+                        task_id=task.id,
+                        payload={
+                            "attempt": attempt,
+                            "exit_code": verify_exit,
+                            "stderr": verify_stderr[:300],
+                        },
+                    )
                     last_exit_code = verify_exit
                     # Rollback attempt delta
                     if task_delta:
                         task_repo.rollback_attempt(task_delta)
                     if attempt < max_attempts:
-                        self._emit(EventType.TASK_RETRY, task_id=task.id, payload={"attempt": attempt, "next_attempt": attempt + 1})
+                        self._emit(
+                            EventType.TASK_RETRY,
+                            task_id=task.id,
+                            payload={"attempt": attempt, "next_attempt": attempt + 1},
+                        )
                     continue
 
             # Execution + verification passed!
@@ -405,34 +516,47 @@ class MissionDriver:
 
         # Exhausted attempts
         task.status = TaskStatus.FAILED
-        self.state.update_task_status(task.id, TaskStatus.FAILED, exit_code=last_exit_code)
+        self.state.update_task_status(
+            task.id, TaskStatus.FAILED, exit_code=last_exit_code
+        )
         return False, last_exit_code
 
     def _complete_task(self, task: Task) -> None:
         """Mark task as completed and commit scoped changes."""
         task.status = TaskStatus.COMPLETED
         task.completed_at = time.time()
-        self.state.update_task_status(task.id, TaskStatus.COMPLETED, completed_at=task.completed_at, exit_code=0)
+        self.state.update_task_status(
+            task.id, TaskStatus.COMPLETED, completed_at=task.completed_at, exit_code=0
+        )
 
         repo_dir = (
             task.working_directory
             or self.working_directory
             or getattr(self, "spec_working_directory", None)
-            or "."
         )
-        task_repo = Repository(repo_dir)
+        task_repo = Repository(repo_dir) if repo_dir else self.repository
 
         if task_repo.has_changes():
             commit_msg = f"feat({task.id}): {task.title}"
-            self._emit(EventType.GIT_COMMIT_STARTED, task_id=task.id, payload={"message": commit_msg})
+            self._emit(
+                EventType.GIT_COMMIT_STARTED,
+                task_id=task.id,
+                payload={"message": commit_msg},
+            )
             sha = task_repo.commit_scoped(
                 commit_msg,
                 commit_paths_filter=task.commit_paths,
             )
             task.commit_sha = sha
             if sha:
-                self.state.update_task_status(task.id, TaskStatus.COMPLETED, commit_sha=sha)
-                self._emit(EventType.GIT_COMMIT_CREATED, task_id=task.id, payload={"commit_sha": sha})
+                self.state.update_task_status(
+                    task.id, TaskStatus.COMPLETED, commit_sha=sha
+                )
+                self._emit(
+                    EventType.GIT_COMMIT_CREATED,
+                    task_id=task.id,
+                    payload={"commit_sha": sha},
+                )
 
         self._emit(
             EventType.TASK_COMPLETED,

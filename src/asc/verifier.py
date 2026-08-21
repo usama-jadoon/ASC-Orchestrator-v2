@@ -3,6 +3,7 @@
 Executes verification commands independently with exit code capture.
 """
 
+import os
 import subprocess
 import time
 from typing import List, Optional, Union
@@ -39,9 +40,10 @@ class Verifier:
         shell = True
         try:
             start_time = time.time()
+            effective_cwd = cwd if (cwd and os.path.exists(cwd)) else None
             result = subprocess.run(
                 command_str,
-                cwd=cwd,
+                cwd=effective_cwd,
                 capture_output=True,
                 text=True,
                 timeout=min(timeout, cmd_timeout),

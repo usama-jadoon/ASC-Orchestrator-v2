@@ -14,26 +14,33 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Ensure UTF-8 output encoding on Windows consoles
+if sys.platform == "win32":
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 from rich import box
-from rich.align import Align
 from rich.console import Console
-from rich.layout import Layout
-from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from .dag import evaluate_mission
-from .events import Event, EventType
 from .lock import ProjectLock
-from .models import MissionSpec, SchedulerState, Task, TaskStatus
+from .models import Task, TaskStatus
 from .repo import Repository
 from .spec import MissionSpecParser
 from .state import State
 
 VERSION = "2.2.0"
-console = Console()
+console = Console(safe_box=True)
 
 
 def get_git_info(cwd: str | Path = ".") -> Dict[str, Any]:
@@ -63,14 +70,24 @@ def get_git_info(cwd: str | Path = ".") -> Dict[str, Any]:
     }
 
 
-def render_header(git_info: Dict[str, Any], state_name: str = "READY", elapsed: str = "00:00:00", model: Optional[str] = None, executor: str = "OMP") -> Panel:
+def render_header(
+    git_info: Dict[str, Any],
+    state_name: str = "READY",
+    elapsed: str = "00:00:00",
+    model: Optional[str] = None,
+    executor: str = "OMP",
+) -> Panel:
     """Render top developer dashboard header."""
     grid = Table.grid(expand=True)
     grid.add_column(justify="left", ratio=1)
     grid.add_column(justify="right", ratio=1)
 
-    status_style = "bold green" if state_name in ("READY", "COMPLETE") else ("bold yellow" if state_name == "RUNNING" else "bold red")
-    status_icon = "●" if state_name in ("READY", "RUNNING") else "✔"
+    status_style = (
+        "bold green"
+        if state_name in ("READY", "COMPLETE")
+        else ("bold yellow" if state_name == "RUNNING" else "bold red")
+    )
+    status_icon = "*" if state_name in ("READY", "RUNNING") else "+"
 
     left_text = Text()
     left_text.append("ASC DevOS ", style="bold bright_white")
@@ -87,25 +104,31 @@ def render_header(git_info: Dict[str, Any], state_name: str = "READY", elapsed: 
     info_table.add_column(style="dim white", width=10)
     info_table.add_column(style="bold white", ratio=1)
 
-    git_badge = "[bold green]CLEAN[/bold green]" if git_info.get("clean") else f"[bold red]DIRTY ({git_info.get('dirty_count')} files)[/bold red]"
+    git_badge = (
+        "[bold green]CLEAN[/bold green]"
+        if git_info.get("clean")
+        else f"[bold red]DIRTY ({git_info.get('dirty_count')} files)[/bold red]"
+    )
     branch_str = str(git_info.get("branch", "main"))
     if len(branch_str) > 22:
-        branch_str = branch_str[:20] + "…"
+        branch_str = branch_str[:20] + "..."
 
     repo_str = str(git_info.get("name", "Project"))
     if len(repo_str) > 22:
-        repo_str = repo_str[:20] + "…"
+        repo_str = repo_str[:20] + "..."
 
     model_display = model or "omniroute/auto (configured)"
 
     info_table.add_row("Project", repo_str, "Branch", branch_str)
-    info_table.add_row("Git", git_badge, "State", f"[{status_style}]{state_name}[/{status_style}]")
+    info_table.add_row(
+        "Git", git_badge, "State", f"[{status_style}]{state_name}[/{status_style}]"
+    )
     info_table.add_row("Executor", executor, "Route", model_display)
     info_table.add_row("Runtime", elapsed, "HEAD", git_info.get("head", "N/A"))
 
     main_grid = Table.grid(expand=True)
     main_grid.add_row(grid)
-    main_grid.add_row(Text("─" * 70, style="dim #334155"))
+    main_grid.add_row(Text("-" * 70, style="dim #334155"))
     main_grid.add_row(info_table)
 
     return Panel(
@@ -116,7 +139,9 @@ def render_header(git_info: Dict[str, Any], state_name: str = "READY", elapsed: 
     )
 
 
-def render_mission_panel(tasks: List[Task], mission_goal: str = "No active mission") -> Panel:
+def render_mission_panel(
+    tasks: List[Task], mission_goal: str = "No active mission"
+) -> Panel:
     """Render mission DAG and progress panel."""
     table = Table(box=None, expand=True, show_header=False, padding=(0, 1))
     table.add_column("Icon", width=3)
@@ -128,45 +153,41 @@ def render_mission_panel(tasks: List[Task], mission_goal: str = "No active missi
     completed_tasks = 0
 
     if not tasks:
-        table.add_row("○", "No tasks", "[dim]IDLE[/dim]", "Load or run a mission to start")
+        table.add_row(
+            "o", "No tasks", "[dim]IDLE[/dim]", "Load or run a mission to start"
+        )
     else:
         for t in tasks:
             if t.status == TaskStatus.COMPLETED:
-                icon = "[bold green]✓[/bold green]"
+                icon = "[bold green]+[/bold green]"
                 st = "[bold green]COMPLETE[/bold green]"
                 completed_tasks += 1
-                det = f"SHA: [dim cyan]{t.commit_sha[:8] if t.commit_sha else 'verified'}[/dim cyan]"
             elif t.status == TaskStatus.RUNNING:
-                icon = "[bold yellow]●[/bold yellow]"
+                icon = "[bold yellow]*[/bold yellow]"
                 st = "[bold yellow]RUNNING[/bold yellow]"
-                det = "Active execution / verify"
             elif t.status == TaskStatus.FAILED:
-                icon = "[bold red]✖[/bold red]"
+                icon = "[bold red]X[/bold red]"
                 st = "[bold red]FAILED[/bold red]"
-                det = "Attempt exhausted"
             elif t.status == TaskStatus.BLOCKED:
-                icon = "[bold red]⊘[/bold red]"
+                icon = "[bold red]![/bold red]"
                 st = "[bold red]BLOCKED[/bold red]"
-                det = "Prerequisites incomplete"
             else:
-                icon = "[dim white]○[/dim white]"
+                icon = "[dim white]o[/dim white]"
                 st = "[dim white]PENDING[/dim white]"
-                deps = f"deps: {','.join(t.depends_on)}" if t.depends_on else "ready"
-                det = f"[dim]{deps}[/dim]"
 
-            task_title = t.title[:24] + "…" if len(t.title) > 25 else t.title
+            task_title = t.title[:24] + "..." if len(t.title) > 25 else t.title
             table.add_row(icon, t.id, st, task_title)
 
     pct = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
     filled = int(pct / 10)
-    bar = "█" * filled + "░" * (10 - filled)
-    progress_str = f"[bold green]{bar}[/bold green] {pct}% ({completed_tasks}/{total_tasks} tasks)"
+    bar = "=" * filled + "-" * (10 - filled)
+    progress_str = f"[bold green][{bar}][/bold green] {pct}% ({completed_tasks}/{total_tasks} tasks)"
 
     grid = Table.grid(expand=True)
     grid.add_row(Text(f"Goal: {mission_goal}", style="italic dim white"))
-    grid.add_row(Text("─" * 36, style="dim #334155"))
+    grid.add_row(Text("-" * 36, style="dim #334155"))
     grid.add_row(table)
-    grid.add_row(Text("─" * 36, style="dim #334155"))
+    grid.add_row(Text("-" * 36, style="dim #334155"))
     grid.add_row(Text(progress_str))
 
     return Panel(
@@ -192,12 +213,26 @@ def render_runtime_panel(
     table.add_column(style="dim white", width=14)
     table.add_column(style="bold white", justify="right")
 
-    lock_badge = "[bold green]HELD[/bold green]" if lock_status == "HELD" else "[dim white]FREE[/dim white]"
+    lock_badge = (
+        "[bold green]HELD[/bold green]"
+        if lock_status == "HELD"
+        else "[dim white]FREE[/dim white]"
+    )
 
     table.add_row("OMP Runtime", f"[bold green]{executor_status}[/bold green]")
     table.add_row("Attempt", attempt)
-    table.add_row("Execution", f"[bold yellow]{exec_phase}[/bold yellow]" if exec_phase == "RUNNING" else f"[dim white]{exec_phase}[/dim white]")
-    table.add_row("Verification", f"[bold green]{verify_phase}[/bold green]" if verify_phase == "PASS" else f"[dim white]{verify_phase}[/dim white]")
+    table.add_row(
+        "Execution",
+        f"[bold yellow]{exec_phase}[/bold yellow]"
+        if exec_phase == "RUNNING"
+        else f"[dim white]{exec_phase}[/dim white]",
+    )
+    table.add_row(
+        "Verification",
+        f"[bold green]{verify_phase}[/bold green]"
+        if verify_phase == "PASS"
+        else f"[dim white]{verify_phase}[/dim white]",
+    )
     table.add_row("Project Lock", lock_badge)
     table.add_row("Changed Files", f"{changed_files} delta")
     table.add_row("Elapsed", elapsed)
@@ -223,11 +258,13 @@ def render_activity_panel(events: List[Dict[str, Any]], max_events: int = 6) -> 
         grid.add_row("--:--:--", "IDLE", "Awaiting operator commands...")
     else:
         for ev in recent:
-            ts = time.strftime("%H:%M:%S", time.localtime(ev.get("timestamp", time.time())))
+            ts = time.strftime(
+                "%H:%M:%S", time.localtime(ev.get("timestamp", time.time()))
+            )
             ev_type = str(ev.get("event_type", "EVENT"))
             msg = ev.get("message") or str(ev.get("payload", ""))
             if len(msg) > 50:
-                msg = msg[:47] + "…"
+                msg = msg[:47] + "..."
             grid.add_row(ts, f"[cyan]{ev_type}[/cyan]", msg)
 
     return Panel(
@@ -253,20 +290,36 @@ def run_doctor(cwd: str | Path = ".") -> None:
         if bun_omp.exists():
             omp_found = str(bun_omp)
 
-    omp_status = f"[bold green]FOUND[/bold green] ({omp_found})" if omp_found else "[bold red]NOT FOUND[/bold red]"
+    omp_status = (
+        f"[bold green]FOUND[/bold green] ({omp_found})"
+        if omp_found
+        else "[bold red]NOT FOUND[/bold red]"
+    )
 
     # Lock check
     repo = Repository(cwd_path)
-    lock_dir = repo.get_root_dir() / ".git" / "asc" if repo.is_git_repo() else cwd_path / ".asc"
+    lock_dir = (
+        repo.get_root_dir() / ".git" / "asc"
+        if repo.is_git_repo()
+        else cwd_path / ".asc"
+    )
     lock = ProjectLock(lock_dir)
     lock_info = lock.get_lock_info()
-    lock_status_str = f"[bold yellow]HELD[/bold yellow] (PID {lock_info.get('pid')})" if lock.is_locked() else "[bold green]FREE[/bold green]"
+    lock_status_str = (
+        f"[bold yellow]HELD[/bold yellow] (PID {lock_info.get('pid') if lock_info else 'unknown'})"
+        if lock.is_locked()
+        else "[bold green]FREE[/bold green]"
+    )
 
     # Missions
     missions = state.get_all_missions(limit=5)
     last_mission = state.get_last_mission_id() or "None"
 
-    table = Table(title=f"ASC DevOS v{VERSION} — System Diagnostics", box=box.ROUNDED, border_style="cyan")
+    table = Table(
+        title=f"ASC DevOS v{VERSION} - System Diagnostics",
+        box=box.ROUNDED,
+        border_style="cyan",
+    )
     table.add_column("Component", style="bold white", width=22)
     table.add_column("Status / Path", style="dim white")
 
@@ -275,13 +328,22 @@ def run_doctor(cwd: str | Path = ".") -> None:
     table.add_row("Project Root", git_info["root"])
     table.add_row("Repository Name", git_info["name"])
     table.add_row("Git Branch / HEAD", f"{git_info['branch']} @ {git_info['head']}")
-    table.add_row("Git Working Tree", "[bold green]CLEAN[/bold green]" if git_info["clean"] else f"[bold red]DIRTY ({git_info['dirty_count']} files)[/bold red]")
+    table.add_row(
+        "Git Working Tree",
+        "[bold green]CLEAN[/bold green]"
+        if git_info["clean"]
+        else f"[bold red]DIRTY ({git_info['dirty_count']} files)[/bold red]",
+    )
     table.add_row("ASC State Path", str(state.db_path))
     table.add_row("OMP Executable", omp_status)
     table.add_row("Execution Lock", lock_status_str)
-    table.add_row("Configured Route", os.environ.get("OMP_MODEL", "omniroute/auto (default)"))
+    table.add_row(
+        "Configured Route", os.environ.get("OMP_MODEL", "omniroute/auto (default)")
+    )
     table.add_row("OmniRoute Gateway", "[dim yellow]UNKNOWN / NOT PROBED[/dim yellow]")
-    table.add_row("Total Missions", f"{len(missions)} recorded (Latest: {last_mission})")
+    table.add_row(
+        "Total Missions", f"{len(missions)} recorded (Latest: {last_mission})"
+    )
 
     console.print(table)
 
@@ -302,12 +364,16 @@ def run_status_view(cwd: str | Path = ".") -> None:
         model=getattr(mission, "model", None) if mission else None,
         executor=getattr(mission, "executor", "OMP") if mission else "OMP",
     )
-    mission_panel = render_mission_panel(tasks, mission_goal=mission.goal if mission else "No mission active")
+    mission_panel = render_mission_panel(
+        tasks, mission_goal=mission.goal if mission else "No mission active"
+    )
     runtime_panel = render_runtime_panel(
         executor_status="READY" if shutil.which("omp") else "UNAVAILABLE",
         attempt="1 / 1",
     )
-    events = state.get_events(mission_id=last_mission_id, limit=5) if last_mission_id else []
+    events = (
+        state.get_events(mission_id=last_mission_id, limit=5) if last_mission_id else []
+    )
     activity = render_activity_panel(events)
 
     body = Table.grid(expand=True)
@@ -320,17 +386,28 @@ def run_status_view(cwd: str | Path = ".") -> None:
     console.print(activity)
 
 
-def run_logs_view(mission_id: Optional[str] = None, task_id: Optional[str] = None, limit: int = 50, cwd: str | Path = ".") -> None:
+def run_logs_view(
+    mission_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+    limit: int = 50,
+    cwd: str | Path = ".",
+) -> None:
     """Display formatted event logs."""
     state = State(cwd=cwd)
     mid = mission_id or state.get_last_mission_id()
     events = state.get_events(mission_id=mid, task_id=task_id, limit=limit)
 
     if not events:
-        console.print(f"[dim yellow]No events found for mission '{mid or 'all'}'.[/dim yellow]")
+        console.print(
+            f"[dim yellow]No events found for mission '{mid or 'all'}'.[/dim yellow]"
+        )
         return
 
-    table = Table(title=f"ASC Mission Event Ledger (Mission: {mid or 'all'})", box=box.SIMPLE_HEAVY, border_style="cyan")
+    table = Table(
+        title=f"ASC Mission Event Ledger (Mission: {mid or 'all'})",
+        box=box.SIMPLE_HEAVY,
+        border_style="cyan",
+    )
     table.add_column("Time", style="dim #94A3B8", width=10)
     table.add_column("Task ID", style="bold white", width=14)
     table.add_column("Event Type", style="cyan", width=24)
@@ -341,7 +418,11 @@ def run_logs_view(mission_id: Optional[str] = None, task_id: Optional[str] = Non
         tid = ev.get("task_id") or "-"
         ev_type = ev.get("event_type", "EVENT")
         payload = ev.get("payload", {})
-        payload_str = ", ".join(f"{k}={v}" for k, v in payload.items()) if isinstance(payload, dict) else str(payload)
+        payload_str = (
+            ", ".join(f"{k}={v}" for k, v in payload.items())
+            if isinstance(payload, dict)
+            else str(payload)
+        )
         table.add_row(ts, tid, ev_type, payload_str)
 
     console.print(table)
@@ -363,10 +444,16 @@ class InteractiveConsole:
         mission = self.state.get_mission(last_mid) if last_mid else None
         tasks = self.state.get_tasks(last_mid) if last_mid else []
 
-        header = render_header(git_info, state_name=mission.status if mission else "READY")
-        m_panel = render_mission_panel(tasks, mission_goal=mission.goal if mission else "No mission active")
+        header = render_header(
+            git_info, state_name=mission.status if mission else "READY"
+        )
+        m_panel = render_mission_panel(
+            tasks, mission_goal=mission.goal if mission else "No mission active"
+        )
         r_panel = render_runtime_panel()
-        act_panel = render_activity_panel(self.state.get_events(mission_id=last_mid, limit=4) if last_mid else [])
+        act_panel = render_activity_panel(
+            self.state.get_events(mission_id=last_mid, limit=4) if last_mid else []
+        )
 
         body = Table.grid(expand=True)
         body.add_column(ratio=1)
@@ -376,7 +463,9 @@ class InteractiveConsole:
         console.print(header)
         console.print(body)
         console.print(act_panel)
-        console.print("[dim]Type [bold white]help[/bold white] for commands, [bold white]doctor[/bold white] for diagnostics, or [bold white]exit[/bold white] to quit.[/dim]\n")
+        console.print(
+            "[dim]Type [bold white]help[/bold white] for commands, [bold white]doctor[/bold white] for diagnostics, or [bold white]exit[/bold white] to quit.[/dim]\n"
+        )
 
         while self.running:
             try:
@@ -411,7 +500,9 @@ class InteractiveConsole:
             git = get_git_info(self.cwd)
             console.print(f"[bold]Project Root:[/bold] {git['root']}")
             console.print(f"[bold]Branch:[/bold] {git['branch']} (HEAD: {git['head']})")
-            console.print(f"[bold]Clean:[/bold] {git['clean']} (Dirty: {git['dirty_count']} files)")
+            console.print(
+                f"[bold]Clean:[/bold] {git['clean']} (Dirty: {git['dirty_count']} files)"
+            )
         elif cmd == "missions":
             missions = self.state.get_all_missions(limit=10)
             if not missions:
@@ -429,6 +520,7 @@ class InteractiveConsole:
                 console.print("[bold red]Usage:[/bold red] run <mission.yaml>")
             else:
                 from .driver import MissionDriver
+
                 spec_file = args[0]
                 if not Path(spec_file).exists():
                     console.print(f"[bold red]File not found:[/bold red] {spec_file}")
@@ -436,40 +528,57 @@ class InteractiveConsole:
                 try:
                     spec = MissionSpecParser.from_file(spec_file)
                     driver = MissionDriver(spec=spec, working_directory=str(self.cwd))
-                    console.print(f"[bold green]Starting mission '{spec.id}'...[/bold green]")
+                    console.print(
+                        f"[bold green]Starting mission '{spec.id}'...[/bold green]"
+                    )
                     res = driver.run()
-                    console.print(f"[bold cyan]Mission finished with status: {res['final_status']}[/bold cyan]")
+                    console.print(
+                        f"[bold cyan]Mission finished with status: {res['final_status']}[/bold cyan]"
+                    )
                 except Exception as exc:
                     console.print(f"[bold red]Error running mission:[/bold red] {exc}")
         elif cmd == "resume":
             from .driver import MissionDriver
+
             mid = args[0] if args else self.state.get_last_mission_id()
             if not mid:
                 console.print("[bold red]No mission to resume.[/bold red]")
                 return
             try:
-                driver = MissionDriver(self.state, mission_id=mid, working_directory=str(self.cwd))
+                driver = MissionDriver(
+                    self.state, mission_id=mid, working_directory=str(self.cwd)
+                )
                 console.print(f"[bold green]Resuming mission '{mid}'...[/bold green]")
                 res = driver.run()
-                console.print(f"[bold cyan]Mission finished with status: {res['final_status']}[/bold cyan]")
+                console.print(
+                    f"[bold cyan]Mission finished with status: {res['final_status']}[/bold cyan]"
+                )
             except Exception as exc:
                 console.print(f"[bold red]Error resuming mission:[/bold red] {exc}")
         else:
-            console.print(f"[dim red]Unknown command '{cmd}'. Type [bold white]help[/bold white] for options.[/dim red]")
+            console.print(
+                f"[dim red]Unknown command '{cmd}'. Type [bold white]help[/bold white] for options.[/dim red]"
+            )
 
     def show_help(self) -> None:
         """Display help sheet."""
-        table = Table(title="ASC DevOS Interactive Commands", box=box.ROUNDED, border_style="cyan")
+        table = Table(
+            title="ASC DevOS Interactive Commands", box=box.ROUNDED, border_style="cyan"
+        )
         table.add_column("Command", style="bold cyan", width=18)
         table.add_column("Shortcut", style="bold yellow", width=10)
         table.add_column("Description", style="white")
 
-        table.add_row("status", "s", "Display live project, mission, and task dashboard")
+        table.add_row(
+            "status", "s", "Display live project, mission, and task dashboard"
+        )
         table.add_row("doctor", "d", "Run full system diagnostic checks")
         table.add_row("run <file>", "r", "Execute a mission YAML specification")
         table.add_row("resume [id]", "r", "Resume the last or specified mission")
         table.add_row("logs", "l", "Inspect chronological mission event ledger")
-        table.add_row("project", "p", "Show repository root, branch, and porcelain status")
+        table.add_row(
+            "project", "p", "Show repository root, branch, and porcelain status"
+        )
         table.add_row("missions", "m", "List all past and active missions")
         table.add_row("clear", "cls", "Clear terminal screen")
         table.add_row("help", "?", "Display this help screen")

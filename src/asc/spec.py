@@ -64,9 +64,7 @@ class MissionSpecParser:
         elif isinstance(defaults_data, dict):
             defaults = MissionDefaults(
                 max_attempts=int(defaults_data.get("max_attempts", 3)),
-                execution_timeout=int(
-                    defaults_data.get("execution_timeout", 600)
-                ),
+                execution_timeout=int(defaults_data.get("execution_timeout", 600)),
                 verification_timeout=int(
                     defaults_data.get("verification_timeout", 300)
                 ),
@@ -82,8 +80,12 @@ class MissionSpecParser:
             data.get("working_directory") or defaults.working_directory
         )
         spec_model = data.get("model") or defaults.model
-        spec_execution_timeout = data.get("execution_timeout") or defaults.execution_timeout
-        spec_verification_timeout = data.get("verification_timeout") or defaults.verification_timeout
+        spec_execution_timeout = (
+            data.get("execution_timeout") or defaults.execution_timeout
+        )
+        spec_verification_timeout = (
+            data.get("verification_timeout") or defaults.verification_timeout
+        )
 
         task_ids = set()
         tasks = []

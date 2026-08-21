@@ -14,13 +14,11 @@ from typing import Optional
 from .console import (
     InteractiveConsole,
     console,
-    get_git_info,
     run_doctor,
     run_logs_view,
     run_status_view,
 )
-from .driver import MissionDriver, build_adapter
-from .models import SchedulerState, TaskStatus
+from .driver import MissionDriver
 from .repo import Repository
 from .spec import MissionSpecParser
 from .state import State
@@ -33,83 +31,118 @@ class CLI:
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path
-        self.parser = argparse.ArgumentParser(
-            prog="asc",
-            description=f"ASC DevOS v{VERSION} — Autonomous Software Company Operator Console",
-        )
         self._setup_parser()
 
     def _setup_parser(self):
-        """Set up command-line argument parser."""
-        self.parser.add_argument(
-            "--version",
-            action="version",
-            version=f"ASC DevOS v{VERSION}",
-        )
-        self.parser.add_argument(
+        """Set up command-line argument parser with shared parent options."""
+        common = argparse.ArgumentParser(add_help=False)
+        common.add_argument(
             "--cwd",
             type=str,
             default=".",
             help="Target repository working directory (defaults to current directory)",
         )
-        self.parser.add_argument(
+        common.add_argument(
             "--model",
             type=str,
             help="Configured model or provider route (e.g. omniroute/auto/best-free)",
         )
-        self.parser.add_argument(
+        common.add_argument(
             "--executor",
             type=str,
             help="Executor engine (omp, shell, mock)",
         )
-        self.parser.add_argument(
+        common.add_argument(
             "--execution-timeout",
             type=int,
             default=600,
             help="Timeout in seconds for coding executor process",
         )
-        self.parser.add_argument(
+        common.add_argument(
             "--verification-timeout",
             type=int,
             default=300,
             help="Timeout in seconds for verification commands",
         )
-        self.parser.add_argument(
+        common.add_argument(
             "--mission-id",
             type=str,
             help="Specific mission ID (defaults to latest active)",
         )
 
-        subparsers = self.parser.add_subparsers(dest="command", help="Available subcommands")
+        self.parser = argparse.ArgumentParser(
+            prog="asc",
+            description=f"ASC DevOS v{VERSION} — Autonomous Software Company Operator Console",
+            parents=[common],
+        )
+        self.parser.add_argument(
+            "--version",
+            action="version",
+            version=f"ASC DevOS v{VERSION}",
+        )
+
+        subparsers = self.parser.add_subparsers(
+            dest="command", help="Available subcommands"
+        )
 
         # init
-        init_p = subparsers.add_parser("init", help="Initialize a sample mission specification")
-        init_p.add_argument("file", nargs="?", default="mission.yaml", help="Path to mission file")
+        init_p = subparsers.add_parser(
+            "init", help="Initialize a sample mission specification", parents=[common]
+        )
+        init_p.add_argument(
+            "file", nargs="?", default="mission.yaml", help="Path to mission file"
+        )
 
         # validate
-        val_p = subparsers.add_parser("validate", help="Validate mission syntax and DAG structure")
-        val_p.add_argument("file", nargs="?", default="mission.yaml", help="Path to mission file")
+        val_p = subparsers.add_parser(
+            "validate",
+            help="Validate mission syntax and DAG structure",
+            parents=[common],
+        )
+        val_p.add_argument(
+            "file", nargs="?", default="mission.yaml", help="Path to mission file"
+        )
 
         # run
-        run_p = subparsers.add_parser("run", help="Execute a mission end-to-end")
-        run_p.add_argument("file", nargs="?", default="mission.yaml", help="Path to mission file")
+        run_p = subparsers.add_parser(
+            "run", help="Execute a mission end-to-end", parents=[common]
+        )
+        run_p.add_argument(
+            "file", nargs="?", default="mission.yaml", help="Path to mission file"
+        )
 
         # status
-        stat_p = subparsers.add_parser("status", help="Show current mission and task status")
-        stat_p.add_argument("--watch", action="store_true", help="Continuously watch status")
+        stat_p = subparsers.add_parser(
+            "status", help="Show current mission and task status", parents=[common]
+        )
+        stat_p.add_argument(
+            "--watch", action="store_true", help="Continuously watch status"
+        )
 
         # resume
-        res_p = subparsers.add_parser("resume", help="Resume interrupted mission")
-        res_p.add_argument("mission_id", nargs="?", default=None, help="Mission ID to resume")
+        res_p = subparsers.add_parser(
+            "resume", help="Resume interrupted mission", parents=[common]
+        )
+        res_p.add_argument(
+            "res_mission_id", nargs="?", default=None, help="Mission ID to resume"
+        )
 
         # doctor
-        doc_p = subparsers.add_parser("doctor", help="Run comprehensive system diagnostics")
-        doc_p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+        doc_p = subparsers.add_parser(
+            "doctor", help="Run comprehensive system diagnostics", parents=[common]
+        )
+        doc_p.add_argument(
+            "--verbose", "-v", action="store_true", help="Verbose output"
+        )
 
         # logs
-        log_p = subparsers.add_parser("logs", help="Inspect mission event ledger")
+        log_p = subparsers.add_parser(
+            "logs", help="Inspect mission event ledger", parents=[common]
+        )
         log_p.add_argument("--task", type=str, help="Filter events by task ID")
-        log_p.add_argument("--limit", type=int, default=50, help="Max events to display")
+        log_p.add_argument(
+            "--limit", type=int, default=50, help="Max events to display"
+        )
 
     def run(self, argv: Optional[list] = None) -> None:
         """Execute the CLI command or launch interactive console if no subcommand."""
@@ -120,8 +153,6 @@ class CLI:
             # Primary launch experience: Open interactive terminal operator console
             InteractiveConsole(cwd=cwd).start()
             return
-
-        state = State(self.db_path, cwd=cwd)
 
         if args.command == "init":
             self._init_mission(args.file, cwd)
@@ -136,7 +167,9 @@ class CLI:
         elif args.command == "doctor":
             run_doctor(cwd=cwd)
         elif args.command == "logs":
-            run_logs_view(mission_id=args.mission_id, task_id=args.task, limit=args.limit, cwd=cwd)
+            run_logs_view(
+                mission_id=args.mission_id, task_id=args.task, limit=args.limit, cwd=cwd
+            )
 
     def _init_mission(self, file_path: str, cwd: Path) -> None:
         """Initialize a new sample mission file if not present."""
@@ -160,12 +193,14 @@ class CLI:
                 "      - echo 'Verifying core logic'\n"
             )
             path.write_text(sample_content, encoding="utf-8")
-            console.print(f"[bold green]Created sample mission template at:[/bold green] {path}")
+            console.print(
+                f"[bold green]Created sample mission template at:[/bold green] {path}"
+            )
 
         try:
             spec = MissionSpecParser.from_file(path)
             state = State(self.db_path, cwd=cwd)
-            state.create_mission(spec)
+            state.save_mission(spec)
             console.print(
                 f"[bold green]Initialized mission '{spec.id}' with {len(spec.tasks)} tasks in state database.[/bold green]"
             )
@@ -177,7 +212,9 @@ class CLI:
         """Validate a mission file specification and DAG validity."""
         path = cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
         if not path.exists():
-            console.print(f"[bold red]Error: Mission file '{path}' not found.[/bold red]")
+            console.print(
+                f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
+            )
             sys.exit(1)
 
         try:
@@ -194,7 +231,9 @@ class CLI:
         """Execute a mission end-to-end with dirty-state safety check."""
         path = cwd / args.file if not Path(args.file).is_absolute() else Path(args.file)
         if not path.exists():
-            console.print(f"[bold red]Error: Mission file '{path}' not found.[/bold red]")
+            console.print(
+                f"[bold red]Error: Mission file '{path}' not found.[/bold red]"
+            )
             sys.exit(1)
 
         repo = Repository(cwd)
@@ -219,7 +258,9 @@ class CLI:
             if args.verification_timeout:
                 spec.verification_timeout = args.verification_timeout
 
-            console.print(f"[bold cyan]Starting Mission '{spec.id}':[/bold cyan] {spec.goal}")
+            console.print(
+                f"[bold cyan]Starting Mission '{spec.id}':[/bold cyan] {spec.goal}"
+            )
             driver = MissionDriver(
                 spec=spec,
                 db_path=self.db_path,
@@ -230,8 +271,12 @@ class CLI:
                 verification_timeout=args.verification_timeout,
             )
             result = driver.run(spec.id)
-            status_color = "green" if result.get("final_status") == "COMPLETE" else "red"
-            console.print(f"\n[bold {status_color}]Mission Finished: {result.get('final_status')}[/bold {status_color}]")
+            status_color = (
+                "green" if result.get("final_status") == "COMPLETE" else "red"
+            )
+            console.print(
+                f"\n[bold {status_color}]Mission Finished: {result.get('final_status')}[/bold {status_color}]"
+            )
             console.print(
                 f"Tasks Completed: [bold green]{result.get('tasks_completed')}[/bold green], "
                 f"Failed: [bold red]{result.get('tasks_failed')}[/bold red], "
@@ -259,7 +304,11 @@ class CLI:
     def _resume_mission(self, args: argparse.Namespace, cwd: Path) -> None:
         """Resume an interrupted mission."""
         state = State(self.db_path, cwd=cwd)
-        target_id = args.mission_id or getattr(args, "mission_id", None) or state.get_last_mission_id()
+        target_id = (
+            getattr(args, "res_mission_id", None)
+            or args.mission_id
+            or state.get_last_mission_id()
+        )
         if not target_id:
             console.print("[bold red]No mission to resume.[/bold red]")
             sys.exit(1)
@@ -267,7 +316,9 @@ class CLI:
         console.print(f"[bold green]Resuming mission '{target_id}'...[/bold green]")
         driver = MissionDriver(state, mission_id=target_id, working_directory=str(cwd))
         result = driver.run(target_id)
-        console.print(f"[bold cyan]Execution finished with status: {result.get('final_status')}[/bold cyan]")
+        console.print(
+            f"[bold cyan]Execution finished with status: {result.get('final_status')}[/bold cyan]"
+        )
 
 
 def main():

@@ -4,10 +4,10 @@
 
 **Snapshot date:** 2026-08-21
 **Authoritative repository:** `usama-jadoon/ASC-Orchestrator-v2`
-**Current branch:** `feature/asc-v2-omp-runtime` (v2.1 Real OMP Runtime Integration)
+**Current branch:** `feature/asc-v2.2-console-safety` (v2.2 Professional Operator Console + Real-Project Safety)
 **Current merged baseline:** `main` at `5d08358dda89b8bb00e1c0076f37d3cfa78da709`
-**Current package version:** `2.0.0` (v2.1 runtime enhancements)
-**Current release status:** Universal v2.0 merged on main; v2.1 real OMP runtime integration completed and verified with all local quality gates and real E2E pass.
+**Current package version:** `2.2.0` (v2.2 Console & Safety release)
+**Current release status:** Universal v2.2 Professional Operator Console, Real-Project Git Safety, Project Execution Lock, and Scheduler RUNNING state verified. First InboxShield pilot recorded as INTERRUPTED / NOT VERIFIED (saved safely in stash).
 
 ---
 

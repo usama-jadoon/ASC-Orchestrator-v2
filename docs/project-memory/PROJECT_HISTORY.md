@@ -833,7 +833,58 @@ Universal ASC v2.1 is fully verified as an operational mission control plane cap
 
 ---
 
-# 32. How to append future history
+# 32. 2026-08-21 — Universal ASC v2.2 Professional Operator Console + Real-Project Safety
+
+## Trigger
+The first real-project pilot against `InboxShield-AI` (`feature/asc-runtime-foundation`) successfully executed OMP and modified project files (`.env.example`, `README.md`, `package.json`, etc.), but exposed critical operational gaps before verification:
+1. The CLI appeared silent/frozen during long-running OMP execution.
+2. Active running tasks caused `evaluate_mission` to report `BLOCKED` instead of `RUNNING`.
+3. Broad `git add .` staging risked pulling in unrelated untracked user files.
+4. ASC state needed to avoid creating untracked `.asc/` folders inside target user repositories.
+5. Lack of a real-time developer operator console with diagnostic visibility and interactive controls.
+
+The pilot on `InboxShield-AI` was safely interrupted and stashed (`stash@{0} WIP: ASC InboxShield runtime-foundation interrupted before verification`) and recorded as **INTERRUPTED / NOT VERIFIED**.
+
+## What Was Implemented
+1. **Interactive Terminal Operator Console (`src/asc/console.py`)**:
+   - Built a developer-first terminal console with Rich and Textual.
+   - Header with project name, branch, clean/dirty badge, executor, route, and runtime elapsed clock.
+   - Master-Detail layout: Mission DAG progress panel + Runtime telemetry panel + Live event activity stream.
+   - Interactive REPL prompt (`ASC> `) supporting commands: `help`, `doctor`, `project`, `missions`, `status`, `run <file>`, `resume [id]`, `logs`, `clear`, `exit`.
+2. **One-Shot CLI Modes & Diagnostics (`src/asc/cli.py`)**:
+   - `asc` without arguments opens the interactive operator console.
+   - `asc doctor`: Full system diagnostic dashboard reporting ASC version, Git root/branch/HEAD/cleanliness, state path, OMP status, lock status, and truthful route reporting (`OmniRoute: UNKNOWN / NOT PROBED`).
+   - `asc status [--watch]`, `asc logs [--task <id>] [--limit <n>]`, `asc validate <file>`, `asc run <file>`, `asc resume [id]`.
+   - Flags: `--cwd`, `--model`, `--executor`, `--execution-timeout`, `--verification-timeout`, `--mission-id`.
+3. **Real-Project Git Safety (`src/asc/repo.py`)**:
+   - `Repository.get_porcelain_status()` parsing staged, modified, untracked, and deleted files.
+   - Pre-execution clean check: fails closed if target repository has uncommitted changes or untracked files before running.
+   - `commit_scoped()`: Stages only task-created delta files without broad `git add .`, enforcing optional `commit_paths` constraints.
+   - `rollback_attempt()`: On attempt failure, cleans only newly created untracked delta files and restores modified files without using destructive `git reset --hard` on user work.
+4. **Project Execution Mutual Exclusion (`src/asc/lock.py`)**:
+   - `ProjectLock` guards repository against concurrent ASC runs with PID tracking and stale lock auto-recovery.
+5. **Safe State Location (`src/asc/state.py`)**:
+   - Defaults state storage to `<repo>/.git/asc/asc.db` so ASC execution does not dirty user repositories with untracked `.asc` folders.
+6. **Scheduler RUNNING State Fix (`src/asc/dag.py`, `src/asc/models.py`)**:
+   - Added `SchedulerState.RUNNING` and updated `evaluate_mission` so active tasks report `RUNNING` instead of prematurely returning `BLOCKED`.
+7. **Heartbeat Event Streaming (`src/asc/events.py`, `src/asc/adapters/omp.py`)**:
+   - Decoupled domain event emitter with 20+ event types.
+   - Active subprocess polling with heartbeat callbacks reporting elapsed time every second to eliminate frozen CLI experience.
+8. **Separate Timeouts**:
+   - Separated `execution_timeout` (for OMP) and `verification_timeout` (for verification command) across spec, models, driver, and CLI.
+
+## Verification
+- **Focused Unit & Integration Suite**: 72 passed (`tests/test_universal_asc.py` + `tests/test_omp_runtime.py` + `tests/test_v22_console_safety.py`).
+- **Linter (Ruff)**: All checks passed.
+- **Formatter (Ruff)**: All files formatted.
+- **Static Type Analysis (MyPy)**: Success across 39 source files.
+- **Documentation Validation**: `documentation=PASS`.
+- **Git Diff Safety**: Clean.
+- **Installed Package CLI Verification**: `asc --version` (2.2.0), `asc --help`, `asc doctor`, `asc status` verified functional on Windows terminal.
+
+---
+
+# 33. How to append future history
 
 Use this template only after a real milestone completes:
 

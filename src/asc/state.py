@@ -160,22 +160,31 @@ class State:
         """Get a database connection with proper settings."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def save_mission(self, spec: Union[MissionSpec, Dict[str, Any]]) -> None:
         """Save a mission and its tasks."""
-        if hasattr(spec, "id"):
+        if isinstance(spec, MissionSpec):
             mission_id = spec.id
             goal = spec.goal
-            executor = getattr(spec, "executor", None)
-            working_directory = getattr(spec, "working_directory", None)
+            executor = getattr(spec, "executor", None) or (
+                getattr(spec.defaults, "executor", None)
+                if hasattr(spec, "defaults")
+                else None
+            )
+            working_directory = getattr(spec, "working_directory", None) or (
+                getattr(spec.defaults, "working_directory", None)
+                if hasattr(spec, "defaults")
+                else None
+            )
             tasks = spec.tasks
         else:
-            mission_id = spec["id"]
-            goal = spec["goal"]
-            executor = spec.get("executor")
-            working_directory = spec.get("working_directory")
+            mission_id = str(spec["id"])
+            goal = str(spec["goal"])
+            executor = spec.get("executor") or spec.get("defaults", {}).get("executor")
+            working_directory = spec.get("working_directory") or spec.get(
+                "defaults", {}
+            ).get("working_directory")
             tasks = spec.get("tasks", [])
 
         now = time.time()
@@ -198,7 +207,9 @@ class State:
                     prompt=t.get("prompt", ""),
                     status=TaskStatus(t.get("status", "PENDING")),
                     depends_on=t.get("depends_on", []),
-                    command=VerificationCommand(command=t["command"]) if t.get("command") else None,
+                    command=VerificationCommand(command=t["command"])
+                    if t.get("command")
+                    else None,
                     executor=t.get("executor"),
                     working_directory=t.get("working_directory"),
                     metadata=t.get("metadata", {}),
@@ -230,7 +241,9 @@ class State:
                     task.id,
                     mission_id,
                     task.title,
-                    task.status.value if hasattr(task.status, "value") else str(task.status),
+                    task.status.value
+                    if hasattr(task.status, "value")
+                    else str(task.status),
                     depends_json,
                     task.prompt,
                     command_str,
@@ -326,10 +339,16 @@ class State:
         now = time.time()
         if isinstance(task, Task):
             task_id = task.id
-            status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+            status_val = (
+                task.status.value if hasattr(task.status, "value") else str(task.status)
+            )
         else:
             task_id = str(task)
-            status_val = status.value if (status and hasattr(status, "value")) else str(status or "PENDING")
+            status_val = (
+                status.value
+                if (status and hasattr(status, "value"))
+                else str(status or "PENDING")
+            )
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -369,9 +388,7 @@ class State:
                 "UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?",
                 (task_id,),
             )
-            cursor.execute(
-                "SELECT attempt_count FROM tasks WHERE id = ?", (task_id,)
-            )
+            cursor.execute("SELECT attempt_count FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
             conn.commit()
             if row and row["attempt_count"] is not None:
@@ -388,7 +405,10 @@ class State:
         if args and isinstance(args[0], (AttemptRecord, dict)):
             attempt_data = args[0]
             if isinstance(attempt_data, dict):
-                attempt_id = attempt_data.get("id") or f"att_{attempt_data.get('task_id')}_{attempt_data.get('attempt_number', 1)}_{uuid.uuid4().hex[:8]}"
+                attempt_id = (
+                    attempt_data.get("id")
+                    or f"att_{attempt_data.get('task_id')}_{attempt_data.get('attempt_number', 1)}_{uuid.uuid4().hex[:8]}"
+                )
                 task_id = attempt_data.get("task_id")
                 attempt_number = attempt_data.get("attempt_number", 1)
                 st = attempt_data.get("status", TaskStatus.PENDING)
@@ -398,24 +418,40 @@ class State:
                 stderr = attempt_data.get("stderr", "")
                 timestamp = attempt_data.get("timestamp", time.time())
             else:
-                attempt_id = attempt_data.id or f"att_{attempt_data.task_id}_{attempt_data.attempt_number}_{uuid.uuid4().hex[:8]}"
+                attempt_id = (
+                    attempt_data.id
+                    or f"att_{attempt_data.task_id}_{attempt_data.attempt_number}_{uuid.uuid4().hex[:8]}"
+                )
                 task_id = attempt_data.task_id
                 attempt_number = attempt_data.attempt_number
-                status_value = attempt_data.status.value if hasattr(attempt_data.status, "value") else str(attempt_data.status)
+                status_value = (
+                    attempt_data.status.value
+                    if hasattr(attempt_data.status, "value")
+                    else str(attempt_data.status)
+                )
                 exit_code = attempt_data.exit_code
                 stdout = attempt_data.stdout
                 stderr = attempt_data.stderr
                 timestamp = attempt_data.timestamp
         else:
             task_id = kwargs.get("task_id") or (args[0] if len(args) > 0 else "")
-            attempt_number = kwargs.get("attempt_number") or (args[1] if len(args) > 1 else 1)
-            st = kwargs.get("status") or (args[2] if len(args) > 2 else TaskStatus.PENDING)
+            attempt_number = kwargs.get("attempt_number") or (
+                args[1] if len(args) > 1 else 1
+            )
+            st = kwargs.get("status") or (
+                args[2] if len(args) > 2 else TaskStatus.PENDING
+            )
             status_value = st.value if hasattr(st, "value") else str(st)
             exit_code = kwargs.get("exit_code") or (args[3] if len(args) > 3 else 0)
             stdout = kwargs.get("stdout") or (args[4] if len(args) > 4 else "")
             stderr = kwargs.get("stderr") or (args[5] if len(args) > 5 else "")
-            timestamp = kwargs.get("timestamp") or (args[6] if len(args) > 6 else time.time())
-            attempt_id = kwargs.get("id") or f"att_{task_id}_{attempt_number}_{uuid.uuid4().hex[:8]}"
+            timestamp = kwargs.get("timestamp") or (
+                args[6] if len(args) > 6 else time.time()
+            )
+            attempt_id = (
+                kwargs.get("id")
+                or f"att_{task_id}_{attempt_number}_{uuid.uuid4().hex[:8]}"
+            )
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
