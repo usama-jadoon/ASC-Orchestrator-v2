@@ -665,7 +665,7 @@ class MissionDriver:
             )
             sha = task_repo.commit_scoped(
                 commit_msg,
-                paths=task_delta if task_delta is not None else None,
+                paths=task_delta if (task_delta is not None and len(task_delta) > 0) else None,
                 commit_paths_filter=task.commit_paths,
             )
             task.commit_sha = sha
