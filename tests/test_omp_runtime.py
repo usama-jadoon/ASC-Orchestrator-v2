@@ -86,14 +86,16 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
     def test_omp_discovery_via_path(self):
         """OMP adapter discovers executable via shutil.which."""
         with patch("shutil.which", return_value="/usr/local/bin/omp"):
-             OMPAdapter(config=OMPConfig())._get_omp_executable()
+            OMPAdapter(config=OMPConfig())._get_omp_executable()
 
     def test_omp_config_override_path(self):
         """Explicit OMP config path overrides PATH discovery."""
         with patch("shutil.which", return_value="/ignored/omp"):
             with patch("os.path.exists", return_value=True):
                 with patch("os.access", return_value=True):
-                    result = OMPAdapter(config=OMPConfig(omp_path="/custom/omp"))._get_omp_executable()
+                    result = OMPAdapter(
+                        config=OMPConfig(omp_path="/custom/omp")
+                    )._get_omp_executable()
                     self.assertEqual(result, "/custom/omp")
 
     """Test execute -> verify order (not verify -> execute)."""
@@ -1009,7 +1011,9 @@ class TestResumeExecutorConsistency(unittest.TestCase):
                 id="mission-omp-resume",
                 goal="Goal",
                 tasks=[Task(id="t1", title="T1", prompt="Prompt")],
-                defaults=MissionDefaults(executor="omp", working_directory="/my/project"),
+                defaults=MissionDefaults(
+                    executor="omp", working_directory="/my/project"
+                ),
             )
             # Save mission to state (like asc init / run)
             self.state.save_mission(spec)
@@ -1027,7 +1031,9 @@ class TestResumeExecutorConsistency(unittest.TestCase):
             id="mission-shell-resume",
             goal="Goal",
             tasks=[Task(id="t1", title="T1", prompt="Prompt")],
-            defaults=MissionDefaults(executor="shell", working_directory="/my/shell/project"),
+            defaults=MissionDefaults(
+                executor="shell", working_directory="/my/shell/project"
+            ),
         )
         self.state.save_mission(spec)
 
@@ -1035,6 +1041,7 @@ class TestResumeExecutorConsistency(unittest.TestCase):
 
         self.assertEqual(driver.executor, "shell")
         from asc.adapters.shell import ShellAdapter
+
         self.assertIsInstance(driver.adapter, ShellAdapter)
         self.assertEqual(driver.working_directory, "/my/shell/project")
 
@@ -1052,7 +1059,6 @@ class TestTaskLevelExecutorOverride(unittest.TestCase):
     def test_task_executor_override_uses_correct_adapter(self):
         """Task with executor='shell' runs via ShellAdapter even if mission defaults to omp."""
         with patch("shutil.which", return_value="/fake/omp"):
-
             spec = MissionSpec(
                 id="mission-override",
                 goal="Goal",

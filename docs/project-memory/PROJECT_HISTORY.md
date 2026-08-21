@@ -772,7 +772,68 @@ This belongs to future work and is documented in `PLAN.md`.
 
 ---
 
-# 31. How to append future history
+---
+
+# 31. 2026-08-21 — ASC v2.1 Real OMP Runtime Integration
+
+## Trigger
+Universal ASC v2.0 merged the compact core, but lacked real process-level coding execution: the driver chose between verification and execution, OMP process adapters were absent, and no end-to-end sandbox proof existed against real `omp.exe`.
+
+## Before
+- `MissionDriver` bypassed the executor adapter if `task.command` was defined.
+- Only `MockAdapter` and `ShellAdapter` existed.
+- Real `omp.exe` CLI contracts were unverified.
+- Task attempt increments were not database-atomic.
+- No real E2E test had proven that ASC could run OMP, modify files, verify via unit tests, commit to Git, and progress DAG dependencies.
+
+## Change
+1. **Real OMP Runtime Adapter (`src/asc/adapters/omp.py`)**:
+   - Implemented executable discovery (`omp.exe` via PATH or user-specific default).
+   - Corrected command construction to the actual top-level OMP CLI contract: `omp -p --auto-approve --cwd <dir> <prompt>`.
+   - Isolated stdin via `stdin=subprocess.DEVNULL` to avoid piped-input hangs on Windows.
+   - Added optional model routing parameter `--model <model>`.
+2. **Execute → Verify Pipeline (`src/asc/driver.py`)**:
+   - Refactored `MissionDriver._execute_task_with_retry` into a strict two-stage cycle:
+     1. Stage 1: Adapter execution (runs coding session).
+     2. Stage 2: Verifier command execution (evaluates acceptance).
+   - Enforced bounded retries up to `max_attempts` on execution or verification failure.
+   - Guarded Git commits: `Repository.commit()` is only invoked after verification passes.
+   - Ensured `effective_cwd` is concretely resolved across task, mission defaults, and fallback roots.
+3. **Database-Level Attempt Counting (`src/asc/state.py`)**:
+   - Implemented `State.increment_attempt_count` with database-level SQL: `UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?`.
+   - Implemented typed `State.get_last_mission_id() -> Optional[str]`.
+4. **Model Specification Support (`models.py`, `spec.py`, `driver.py`)**:
+   - Added `model` field propagation across `defaults`, root spec, and task overrides without hardcoding defaults.
+
+## Historical Failure & Learning During Real E2E Verification
+- During initial real E2E sandbox runs, default upstream free provider tiers (`oc/deepseek-v4-flash-free`) returned HTTP 401 quota exhaustion on task 2.
+- ASC's bounded retry engine correctly rejected the attempt, did not commit broken code, and marked the task BLOCKED.
+- This proved:
+  1. ASC bounded failure handling works as designed.
+  2. Provider/model routing failover belongs to OMP/OmniRoute, not ASC.
+  3. Real E2E succeeded when configured with an active free model (`stepfun/step-3.7-flash:free`).
+
+## Verification
+- **OMP focused tests**: 28 passed (`tests/test_omp_runtime.py`).
+- **Universal + OMP tests**: 54 passed (`tests/test_universal_asc.py` + `tests/test_omp_runtime.py`).
+- **Full test suite**: 715 passed, 6 skipped, 4 subtests passed (`pytest tests/`).
+- **Ruff linter**: All checks passed.
+- **Ruff formatter**: 72 files formatted / checked.
+- **MyPy**: Success across 36 source files.
+- **git diff --check**: Clean (exit code 0).
+- **Real Sandbox E2E**:
+  - Baseline: `49e56e6` (intentionally broken `alpha.py` and `beta.py` with failing tests).
+  - Task 1 (`fix-alpha`): Real `omp.exe` executed -> `alpha.py` fixed -> `test_alpha` PASS -> ASC commit `714c192 feat(fix-alpha): Fix alpha function`.
+  - Dependency progression: `fix-beta` activated only after `fix-alpha` completed.
+  - Task 2 (`fix-beta`): Real `omp.exe` executed -> `beta.py` fixed -> `test_beta` PASS -> ASC commit `5311597 feat(fix-beta): Fix beta function`.
+  - Terminal state: `COMPLETE` (2/2 tasks completed, clean working tree).
+
+## Result
+Universal ASC v2.1 is fully verified as an operational mission control plane capable of orchestrating real `omp.exe` AI coding sessions against real target repositories.
+
+---
+
+# 32. How to append future history
 
 Use this template only after a real milestone completes:
 

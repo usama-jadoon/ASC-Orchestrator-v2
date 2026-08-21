@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import time
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .adapters.mock import MockAdapter
@@ -69,8 +68,14 @@ class MissionDriver:
             mission_record = (
                 self.state.get_mission(self.mission_id) if self.mission_id else None
             )
-            mission_executor = getattr(mission_record, "executor", None) if mission_record else None
-            mission_wd = getattr(mission_record, "working_directory", None) if mission_record else None
+            mission_executor = (
+                getattr(mission_record, "executor", None) if mission_record else None
+            )
+            mission_wd = (
+                getattr(mission_record, "working_directory", None)
+                if mission_record
+                else None
+            )
 
             self.executor = kwargs.get("executor") or mission_executor or "omp"
             self.working_directory = kwargs.get("working_directory") or mission_wd
@@ -220,9 +225,7 @@ class MissionDriver:
 
         # Build execution context with working directory and model
         task_model = (
-            task.model
-            or getattr(self, "model", None)
-            or os.environ.get("OMP_MODEL")
+            task.model or getattr(self, "model", None) or os.environ.get("OMP_MODEL")
         )
         context = {
             "working_directory": (
@@ -281,9 +284,15 @@ class MissionDriver:
 
             # Stage 2: VERIFY if task has verification command
             if task.command and task.command.command:
+                effective_cwd = str(
+                    task.working_directory
+                    or self.working_directory
+                    or getattr(self, "spec_working_directory", None)
+                    or "."
+                )
                 vr = self.verifier.run_verification(
                     [task.command],
-                    cwd=context.get("working_directory", "."),
+                    cwd=effective_cwd,
                 )
                 verify_exit = vr.exit_code
                 verify_stdout = vr.stdout
@@ -330,13 +339,8 @@ class MissionDriver:
             task.working_directory
             or self.working_directory
             or getattr(self, "spec_working_directory", None)
-            or "."
         )
-        task_repo = (
-            self.repository
-            if str(self.repository.path) == str(Path(repo_dir))
-            else Repository(repo_dir)
-        )
+        task_repo = Repository(repo_dir) if repo_dir else self.repository
 
         # Commit if git repository exists and has changes
         if task_repo.has_changes():

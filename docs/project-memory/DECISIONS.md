@@ -353,51 +353,42 @@ Repeated re-review wastes time and can create regressions after an already-valid
 
 # ADR-019 — Verification follows execution
 
-**Status:** Required; not yet fully implemented in Universal ASC v2
+**Status:** Accepted & Implemented in v2.1
 
 ## Decision
 
-Final flow must be:
+Task execution loop must always execute the coding adapter first, then evaluate deterministic verification second:
 
 ```text
-execute
-→ verify
-→ accept/commit
-```
-
-not:
-
-```text
-verification OR execution
+adapter.execute(task, context)
+       ↓
+verifier.run_verification(task.command, cwd)
+       ↓
+verification PASS → commit → COMPLETE
+verification FAIL → bounded retry
 ```
 
 ## Reason
 
-The current Universal driver can run a verification command instead of the adapter when a command exists.
-
-That can verify a pre-existing state without actually performing the requested task.
-
-## Required change
-
-Refactor in the next milestone.
+Allowing a task with `command:` to skip adapter execution would falsely declare pre-existing repository code as completed without performing the requested coding task.
 
 ---
 
 # ADR-020 — Commit only verified work
 
-**Status:** Accepted principle; safety implementation incomplete
+**Status:** Accepted & Implemented in v2.1
 
 ## Decision
 
-A task may create a commit only after required verification passes.
+A task may create a commit only after required verification passes. Execution failures or verification failures must never trigger a Git commit.
 
 ## Reason
 
 Git history is part of durable evidence.
 
-## Required future hardening
+## Future hardening scope
 
-Do not stage unrelated pre-existing user changes.
+Task-scoped Git staging index isolation for repositories with pre-existing dirty files.
 
 ---
 
@@ -472,6 +463,68 @@ When local history diverges and must be reset to remote truth, create a backup b
 ## Reason
 
 This preserved local-only commits while restoring a clean `main`.
+
+---
+
+# ADR-025 — Real OMP Top-Level Invocation Contract
+
+**Status:** Accepted in v2.1
+
+## Context
+
+Earlier adapter code assumed a non-existent `omp launch` subcommand.
+
+## Decision
+
+Use the actual top-level non-interactive OMP CLI contract:
+
+```text
+omp -p --auto-approve --cwd <target_dir> [--model <model>] <prompt>
+```
+
+with `stdin=subprocess.DEVNULL` to avoid Windows console input hangs.
+
+## Reason
+
+Verified directly against installed `omp.exe` v17.4.0+.
+
+---
+
+# ADR-026 — Configurable Model Parameter Propagation Without Hardcoded ASC Defaults
+
+**Status:** Accepted in v2.1
+
+## Context
+
+Free upstream model endpoints can experience transient 401 quota limits, rate limits, or deprecation.
+
+## Decision
+
+Support `model` configuration across `defaults`, `spec`, and `task` levels, and pass it to the OMP adapter via `--model`. Do **not** hardcode a specific model (e.g. `stepfun/step-3.7-flash:free`) as an ASC production default.
+
+## Reason
+
+Provider selection, quota management, and failover belong to OMP and OmniRoute, not ASC.
+
+---
+
+# ADR-027 — Database-Level Atomic Increment with Single-Driver v2.1 Scheduler Invariant
+
+**Status:** Accepted in v2.1
+
+## Decision
+
+Implement `State.increment_attempt_count` using atomic SQL:
+
+```sql
+UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?
+```
+
+inside a single SQLite transaction and query back the resulting count.
+
+## Concurrency Invariant
+
+ASC v2.1 operates as a single-driver deterministic scheduler loop per mission. Attempt tracking is durably persisted; concurrent multi-driver execution is out of scope for v2.1.
 
 ---
 

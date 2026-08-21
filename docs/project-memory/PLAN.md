@@ -282,157 +282,64 @@ Commands:
 
 ---
 
-# 6. Current gaps — do not hide these
+# 6. Current gaps & architectural status
 
-Universal ASC v2 is a **core**, not yet the complete autonomous coding runtime.
+Universal ASC v2.1 has closed the critical execution/runtime gaps in the sandbox environment:
 
-## Gap A — execution/verification ordering
+- [x] **Execute → Verify ordering**: Adapter execution runs first; deterministic verification runs second.
+- [x] **Real OMP adapter**: `src/asc/adapters/omp.py` discovers installed `omp.exe` and uses `-p --auto-approve --cwd <dir> [--model <model>]` syntax with safe stdio isolation.
+- [x] **Bounded retries & persistence**: `max_attempts` enforced; attempts and events recorded in SQLite; DB-level atomic `increment_attempt_count`.
+- [x] **Model configuration**: Optional `model` parameter supported across `defaults`, `spec`, and `task` levels and passed to OMP adapter without hardcoding defaults.
+- [x] **Target working directory**: End-to-end propagation for target repo, OMP execution, and verification commands with full Windows spaced paths support.
+- [x] **Git commit safety**: Commits created only after verification PASS; no commits on execution/verification failure; strictly no autonomous push/merge/tag/release.
+- [x] **Single-driver scheduler**: Deterministic single-threaded mission scheduling in v2.1.
 
-Current `MissionDriver` effectively chooses between execution and verification:
-
-```text
-if task has command:
-    verify
-else:
-    adapter.execute
-```
-
-Desired:
-
-```text
-adapter.execute
-    ↓
-verify
-    ↓
-commit
-```
-
-This is the highest-priority runtime gap.
-
-## Gap B — no real OMP adapter
-
-Current adapters:
-
-```text
-base
-mock
-shell
-```
-
-There is no real `omp` adapter yet.
-
-## Gap C — max_attempts exists but is not enforced as a real retry loop
-
-The model declares a default `max_attempts = 3`, but the current driver does not implement a complete bounded execution/verification retry state machine.
-
-## Gap D — target project working directory is incomplete
-
-Repository objects can accept a path, but task execution, OMP execution and verification do not yet have one clean end-to-end target-project contract.
-
-## Gap E — Git safety is incomplete
-
-Current commit helper can stage the whole working tree with `git add .`.
-
-A final autonomous system must protect pre-existing user changes and avoid mixing unrelated changes into a task commit.
-
-## Gap F — generated sample and parser use inconsistent verification vocabulary
-
-The current `asc init` sample uses `verify:` while the parser currently reads `command:`.
-
-This must be normalized.
-
-## Gap G — verifier currently executes only the first command
-
-The verifier accepts a list but selects the first element. Multi-command verification requires a defined contract.
-
-## Gap H — executor selection is absent
-
-There is no mature mission/task field for:
-
-```text
-executor: omp
-executor: shell
-executor: mock
-```
-
-## Gap I — Universal ASC and frozen control-plane boundaries need convergence
-
-The new compact engine and old rich control plane both contain useful concepts. Future integration must avoid creating two competing sources of truth.
+### Future architectural scope (post-v2.1):
+1. **Real-project pilot**: Bounded execution against real-world repositories with pre-existing user code.
+2. **Task-scoped Git staging isolation**: Finer-grained index staging to completely isolate pre-existing dirty files from task commits.
+3. **Multi-command verification sequencing**: Definitive ordered sequence semantics with fail-fast / report-all options.
+4. **State convergence**: Formal reconciliation between legacy PESE (`.project-os/`) and Universal SQLite (`.asc/asc.db`) stores.
 
 ---
 
-# 7. Next milestone — ASC v2.1 Real Executor Bridge
+# 7. Milestone v2.1 — Real OMP Executor Bridge (COMPLETED & VERIFIED)
 
-This is the next planned engineering milestone.
+**Status:** Completed & Verified (2026-08-21)
 
-## Goal
-
-Prove the full vertical slice:
-
+## Achieved Vertical Slice:
 ```text
 Mission submitted
       ↓
-ASC loads state
+ASC loads state (SQLite)
       ↓
-ASC determines READY task
+ASC determines READY task (DAG)
       ↓
-OMP adapter receives task
+OMP adapter executes task via real omp.exe
       ↓
-OMP inspects target repository
-      ↓
-OMP edits code
-      ↓
-OMP runs task-level work
+OMP modifies code in target repository
       ↓
 ASC runs deterministic verification
       ↓
-FAIL → bounded retry/repair
-PASS → safe commit
+FAIL → bounded retry/repair (max_attempts enforced)
+PASS → safe Git commit (feat(<task_id>): <title>)
       ↓
-ASC advances DAG
+ASC advances DAG to next dependent task
       ↓
-Mission reaches terminal COMPLETE
+Mission reaches terminal COMPLETE (clean working tree)
 ```
 
-## Required capabilities
-
-### A. Split execution and verification
-Execution must happen first. Verification must decide acceptance.
-
-### B. Implement bounded retries
-Respect `max_attempts`. Persist each attempt.
-
-### C. Build OMP adapter
-- discover executable/configuration instead of hardcoding,
-- use safe process invocation,
-- support Windows paths with spaces,
-- capture stdout/stderr/exit code,
-- enforce timeout,
-- return structured result.
-
-### D. Support target repository
-Mission/runtime must know which repository is being modified.
-
-### E. Protect Git
-- detect unsafe dirty state,
-- do not overwrite user work,
-- commit only verified task changes,
-- no auto-push,
-- no auto-merge,
-- no auto-tag,
-- no auto-release.
-
-### F. Make executor configurable
-Task/default executor selection must not break unit tests.
-
-### G. Sandbox E2E
-Use a tiny disposable broken project before using a real product repository.
+## Evidence Summary:
+- **Focused OMP suite**: 28/28 PASS
+- **Universal + OMP suite**: 54/54 PASS
+- **Full repository suite**: 715 passed, 6 skipped, 4 subtests passed
+- **Real Sandbox E2E**: 2-task pipeline (`fix-alpha` -> commit `714c192`, `fix-beta` -> commit `5311597`, status `COMPLETE`)
+- **Quality Gates**: Ruff check & format (72 files), MyPy (36 files), git diff --check clean.
 
 ---
 
-# 8. Planned milestone after v2.1 — real project pilot
+# 8. Next milestone — Real Project Pilot (Planned)
 
-After the sandbox vertical slice passes:
+After the disposable sandbox vertical slice success:
 
 1. choose one small, bounded real-project change,
 2. update all master docs before implementation,

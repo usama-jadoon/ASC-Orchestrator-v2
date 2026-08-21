@@ -136,14 +136,41 @@ class State:
             return [Mission.from_row(row) for row in rows]
 
     def get_last_mission_id(self) -> Optional[str]:
-        """Get the ID of the most recent mission."""
-        missions = self.get_all_missions()
-        return missions[0].id if missions else None
+        """Retrieve the ID of the most recently created mission, or None if no missions exist."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM missions ORDER BY created_at DESC LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                return str(row["id"])
+            return None
 
-    def get_attempt_count(self, task_id: str) -> int:
-        """Get the number of attempts for a task."""
-        attempts = self.get_attempts(task_id)
-        return len(attempts) if attempts else 0
+    def increment_attempt_count(self, task_id: str) -> int:
+        """Atomically increment the attempt count for a task in SQLite and return the updated count."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?",
+                (task_id,),
+            )
+            cursor.execute("SELECT attempt_count FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            conn.commit()
+            return (
+                int(row["attempt_count"])
+                if row and row["attempt_count"] is not None
+                else 0
+            )
+
+    def update_attempt_count(self, task_id: str, new_count: int) -> None:
+        """Set the attempt count for a task to a specific value."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET attempt_count = ? WHERE id = ?",
+                (new_count, task_id),
+            )
+            conn.commit()
 
     def save_mission(self, spec: Any) -> None:
         """Save a complete mission spec including all its tasks."""
@@ -159,7 +186,9 @@ class State:
         if working_directory is None and hasattr(spec, "defaults"):
             working_directory = getattr(spec.defaults, "working_directory", None)
         elif working_directory is None and isinstance(spec, dict):
-            working_directory = spec.get("working_directory") or spec.get("defaults", {}).get("working_directory")
+            working_directory = spec.get("working_directory") or spec.get(
+                "defaults", {}
+            ).get("working_directory")
 
         with self._get_connection() as conn:
             cursor = conn.cursor()

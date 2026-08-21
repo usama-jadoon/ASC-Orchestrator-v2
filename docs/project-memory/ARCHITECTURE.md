@@ -354,79 +354,68 @@ Future architecture needs:
 
 ---
 
+---
+
 # 10. Adapter layer
 
-Current adapter directory:
+Adapter directory:
 
 ```text
 src/asc/adapters/
     base.py
     mock.py
     shell.py
+    omp.py
 ```
 
-## Base adapter
-Defines the executor contract.
+## Base adapter (`base.py`)
+Defines the executor contract (`execute(task, context) -> AgentResult`).
 
-## Mock adapter
-Used for deterministic testing.
+## Mock adapter (`mock.py`)
+Used for deterministic unit testing.
 
-## Shell adapter
+## Shell adapter (`shell.py`)
 Runs task prompt as a shell command.
 
-## Missing
-
-There is currently no:
-
-```text
-omp.py
-```
-
-The OMP adapter is the critical bridge for real coding autonomy.
+## OMP adapter (`omp.py`) — Implemented in v2.1
+Integrates with the installed OMP CLI runtime (`omp.exe` v17.4.0+):
+- Discovers `omp` executable from PATH or user bin directories.
+- Constructs command using the exact top-level OMP syntax:
+  ```text
+  omp -p --auto-approve --cwd <target_dir> [--model <model>] <prompt>
+  ```
+- Uses `stdin=subprocess.DEVNULL` to isolate subprocess stdio and prevent Windows piped-input blocking.
+- Enforces process-level timeouts (maps timeout to exit code 124).
+- Captures stdout/stderr and returns structured `AgentResult`.
 
 ---
 
 # 11. Mission driver — `driver.py`
 
-The driver currently:
-
-1. loads/evaluates task state,
-2. chooses the next runnable task,
-3. marks task RUNNING,
-4. performs one execution/verification path,
-5. marks completion/failure,
-6. writes events,
-7. may commit changes,
-8. re-evaluates DAG.
-
-## Critical current behavior
-
-Current task execution path is effectively:
+The mission driver implements the authoritative single-driver deterministic execution loop:
 
 ```text
-if task.command exists:
-    run verifier
-else:
-    run adapter
-```
-
-This means a task with a verification command may be “verified” without the adapter first performing the requested coding task.
-
-## Required final behavior
-
-```text
-adapter.execute(task)
+adapter.execute(task, context)
        ↓
-execution result
+structured execution result recorded (attempt #N)
        ↓
-verification command(s)
+verification command(s) evaluated in target cwd
+       ↓
+verification attempt recorded
        ↓
 PASS?
-   ├── yes → commit → COMPLETE
-   └── no  → bounded retry → FAILED/BLOCKED when exhausted
+   ├── YES → git commit feat(<task>): <title> → COMPLETE task → advance DAG
+   └── NO  → attempt < max_attempts?
+               ├── YES → bounded retry (increment attempt, re-run adapter)
+               └── NO  → mark task BLOCKED/FAILED → mission BLOCKED
 ```
 
-This change is architecture-critical, not cosmetic.
+### Key Driver Invariants (v2.1):
+1. **Execution precedes verification**: The coding adapter always runs before verification is evaluated.
+2. **Commit only on verify PASS**: Unverified or failed changes are never committed.
+3. **Target repository context**: Concretely resolves working directory (`effective_cwd`) preserving `task > mission/default > "."` precedence.
+4. **Single-driver scheduler**: Deterministic single-threaded execution per mission in v2.1.
+5. **Resume consistency**: Resumed missions use the spec/task-defined executor consistently.
 
 ---
 

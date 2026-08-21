@@ -76,7 +76,10 @@ class OMPAdapter(AgentAdapter):
 
         # Check bun directory
         home = Path.home()
-        for bun_candidate in [home / ".bun" / "bin" / "omp.exe", home / ".bun" / "bin" / "omp"]:
+        for bun_candidate in [
+            home / ".bun" / "bin" / "omp.exe",
+            home / ".bun" / "bin" / "omp",
+        ]:
             if bun_candidate.exists():
                 return str(bun_candidate)
 

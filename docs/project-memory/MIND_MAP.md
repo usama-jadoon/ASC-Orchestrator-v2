@@ -103,12 +103,12 @@ flowchart TD
 
     ADAPT --> MOCK[Mock]
     ADAPT --> SHELL[Shell]
-    ADAPT -. planned .-> OMP[OMP Adapter]
+    ADAPT --> OMP[OMP Adapter - Real omp.exe]
 ```
 
 ---
 
-# 3. Intended final runtime flow
+# 3. Verified runtime flow (Universal ASC v2.1)
 
 ```mermaid
 flowchart TD
@@ -118,20 +118,20 @@ flowchart TD
 
     R -->|No, all complete| C[Mission COMPLETE]
     R -->|No, unresolved dependency/risk| B[BLOCKED / recovery decision]
-    R -->|Yes| E[Executor Adapter]
+    R -->|Yes| E[OMP Adapter]
 
-    E --> O[OMP coding session]
-    O --> M[Model requests]
-    M --> OR[OmniRoute]
-    OR --> PROVIDER[Free/local provider]
+    E --> O[Real omp.exe session]
+    O --> M[Model requests via --model / env]
+    M --> OR[OmniRoute / Provider routing]
+    OR --> PROVIDER[Configured / free provider]
 
     O --> CODE[Target repository edits]
     CODE --> V[ASC deterministic verification]
 
-    V -->|PASS| COMMIT[Safe task commit]
+    V -->|PASS| COMMIT[Safe task Git commit]
     COMMIT --> A
 
-    V -->|FAIL, attempts remain| RETRY[Repair / retry]
+    V -->|FAIL, attempts < max_attempts| RETRY[Bounded retry / attempt recorded]
     RETRY --> O
 
     V -->|FAIL, exhausted| FAIL[FAILED / BLOCKED]
@@ -147,7 +147,7 @@ flowchart LR
     subgraph Mission["ASC mission loop — authoritative"]
         A1[Select READY work]
         A2[Authorize attempt]
-        A3[Evaluate result]
+        A3[Evaluate verification result]
         A4[Advance dependency/gate state]
         A5[Decide complete/block/recover]
         A1 --> A2 --> A3 --> A4 --> A5 --> A1
@@ -231,18 +231,18 @@ v1.0.2 dependency/lifecycle fixes
    ↓
 v1.0.3 historical-state compatibility
    ↓
-Universal ASC v2 compact core
+Universal ASC v2 compact core (PR #6 merged)
    ↓
-PR #6 merged + CI/Release Gate green
+Universal ASC v2.1 Real OMP Runtime (VERIFIED PASS)
    ↓
-NEXT: real OMP executor bridge
+NEXT: Bounded real-project pilot
 ```
 
 ---
 
 # 7. What is complete vs incomplete
 
-## Complete / merged
+## Complete / verified
 
 ```text
 [✓] Rich legacy control-plane contracts
@@ -251,26 +251,27 @@ NEXT: real OMP executor bridge
 [✓] Risk/recovery/validation foundations
 [✓] Universal task/DAG core
 [✓] SQLite mission/task/attempt/event state
-[✓] Universal CLI
-[✓] Mock/Shell adapter foundation
-[✓] Git helper foundation
-[✓] Release verifier
-[✓] CI across Python 3.11 / 3.12 / 3.13
-[✓] PR #6 merged
+[✓] Database-level atomic attempt counting
+[✓] Universal CLI (init, validate, run, status, resume, doctor)
+[✓] Mock/Shell/OMP adapters
+[✓] Real OMP process execution (omp -p --auto-approve --cwd <dir>)
+[✓] Model routing parameter propagation (--model)
+[✓] Windows paths with spaces handling
+[✓] Execute → Verify pipeline ordering
+[✓] Bounded retries / max_attempts enforcement
+[✓] Commit only on verification PASS
+[✓] Real Sandbox OMP E2E (2/2 tasks, verified commits, COMPLETE)
+[✓] Full test suite (715 passed, 6 skipped, 4 subtests)
+[✓] Quality gates (Ruff lint & format, MyPy 36 files clean)
 ```
 
-## Not complete
+## Not complete (Future scope)
 
 ```text
-[ ] Real OMP adapter
-[ ] Execute → verify pipeline
-[ ] Full bounded retry integration
-[ ] Safe target-repository dirty-state isolation
-[ ] Explicit executor selection
-[ ] Multi-command verification contract
-[ ] Sandbox OMP E2E
-[ ] Real project pilot
-[ ] Final convergence of old rich control plane and Universal core
+[ ] Real-world project pilot
+[ ] Finer-grained task-scoped Git index staging isolation
+[ ] Multi-command verification sequence specification
+[ ] Final convergence of legacy PESE (.project-os/) and Universal SQLite (.asc/)
 ```
 
 ---

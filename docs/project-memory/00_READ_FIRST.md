@@ -2,11 +2,12 @@
 
 **Purpose:** This is the permanent entry point for the ASC Orchestrator project memory.
 
-**Snapshot date:** 2026-08-21  
-**Authoritative repository:** `usama-jadoon/ASC-Orchestrator-v2`  
-**Current merged baseline:** `main` at `5d08358dda89b8bb00e1c0076f37d3cfa78da709`  
-**Current package version:** `2.0.0`  
-**Current release status:** merged and post-merge CI green, including Release Gate.
+**Snapshot date:** 2026-08-21
+**Authoritative repository:** `usama-jadoon/ASC-Orchestrator-v2`
+**Current branch:** `feature/asc-v2-omp-runtime` (v2.1 Real OMP Runtime Integration)
+**Current merged baseline:** `main` at `5d08358dda89b8bb00e1c0076f37d3cfa78da709`
+**Current package version:** `2.0.0` (v2.1 runtime enhancements)
+**Current release status:** Universal v2.0 merged on main; v2.1 real OMP runtime integration completed and verified with all local quality gates and real E2E pass.
 
 ---
 
@@ -24,7 +25,7 @@ The project became large enough that a long chat prompt was no longer a reliable
 The files in this pack are designed like the documents used before and during construction of a building:
 
 1. **PLAN.md** — what we are building, why, scope, milestones, future direction.
-2. **PROJECT_HISTORY.md** — what happened, in chronological order, including major fixes and pivots.
+2. **PROJECT_HISTORY.md** — what happened, in chronological order, including major fixes, pivots, and runtime integration evidence.
 3. **MIND_MAP.md** — one visual/conceptual map of the entire system.
 4. **ARCHITECTURE.md** — how the system is structured and how components interact.
 5. **DECISIONS.md** — important decisions, alternatives rejected, and reasons.
@@ -90,7 +91,7 @@ REL
 
 It is preserved because it already contains significant state, audit, lifecycle, security, recovery and validation logic.
 
-### B. Universal ASC v2 core
+### B. Universal ASC v2 / v2.1 core
 
 Package:
 
@@ -110,7 +111,7 @@ Current package version:
 2.0.0
 ```
 
-This is the compact universal orchestration core introduced by PR #6.
+This is the compact universal orchestration core introduced by PR #6 and extended with real OMP runtime capabilities in v2.1.
 
 It contains:
 
@@ -125,11 +126,15 @@ driver
 cli
 release
 adapters/
+    base
+    mock
+    shell
+    omp
 ```
 
 ### Rule
 
-Do not confuse the repository name `ASC-Orchestrator-v2` with the historical `1.0.x` legacy engine releases or the current Universal ASC package version `2.0.0`.
+Do not confuse the repository name `ASC-Orchestrator-v2` with the historical `1.0.x` legacy engine releases or the Universal ASC package version `2.0.0`.
 
 This naming collision is one of the main reasons this documentation pack is necessary.
 
@@ -140,42 +145,25 @@ This naming collision is one of the main reasons this documentation pack is nece
 At this snapshot:
 
 ```text
-PR #6                       MERGED
-Merge commit                5d08358dda89b8bb00e1c0076f37d3cfa78da709
-GitHub workflow run         32370325630
-Lint & Format               PASS
-Type Check                  PASS
-Python 3.11 tests           PASS
-Python 3.12 tests           PASS
-Python 3.13 tests           PASS
-Documentation               PASS
-Release Gate                PASS
+Universal ASC v2 (PR #6)    MERGED (5d08358dda89b8bb00e1c0076f37d3cfa78da709)
+v2.1 Real OMP Runtime       VERIFIED PASS (local feature branch feature/asc-v2-omp-runtime)
+Lint (Ruff)                 PASS (All checks passed)
+Format (Ruff)               PASS (72 files formatted)
+Type Check (MyPy)           PASS (36 source files clean)
+OMP focused tests           PASS (28/28 passed)
+Universal + OMP tests       PASS (54/54 passed)
+Full test suite             PASS (715 passed, 6 skipped, 4 subtests passed)
+git diff --check            PASS (Clean)
+Real OMP Sandbox E2E        PASS (2/2 tasks verified, commits created, COMPLETE)
 ```
 
-The Python 3.11 CI job collected:
-
-```text
-691 tests
-685 passed
-6 skipped
-4 subtests passed
-```
-
-The local repository was also aligned to the same merge commit and the current release verifier returned:
-
-```text
-release=PASS
-version=2.0.0
-gate.version=PASS
-gate.package_name=PASS
-gate.dependencies=PASS
-gate.console_entry_point=PASS
-gate.src_layout=PASS
-gate.runtime_modules=PASS
-gate.test_suite=PASS
-```
-
-This is the current verified baseline.
+### Verified Real E2E Evidence
+- **Baseline commit**: `49e56e6` (intentionally broken fixture with failing unit tests)
+- **Task 1 (`fix-alpha`)**: Real `omp.exe` executed -> `alpha.py` edited -> `test_alpha` passed -> ASC commit `714c192`
+- **Dependency progression**: `fix-beta` became runnable only after `fix-alpha` completed
+- **Task 2 (`fix-beta`)**: Real `omp.exe` executed -> `beta.py` edited -> `test_beta` passed -> ASC commit `5311597`
+- **Mission completion**: State `COMPLETE`, clean working tree.
+- **Model routing note**: Real E2E used an available free tier model (`stepfun/step-3.7-flash:free`). Model selection is configurable via mission defaults/task parameters and is not hardcoded as an ASC default.
 
 ---
 
@@ -248,7 +236,7 @@ When sources disagree, use this order:
 
 ```text
 1. Current Git repository + exact commit
-2. Current tests / CI / release-gate evidence
+2. Current tests / verified runtime evidence / CI
 3. Current master documentation in this pack
 4. Historical PRs / changelog / release notes
 5. Old prompts / chats / reports
@@ -261,15 +249,18 @@ A confident AI statement is never stronger than actual Git/code/test evidence.
 
 ## 8. Permanent project rules
 
-- ASC owns mission truth.
-- OMP should own coding-session execution.
-- OmniRoute should own model/provider routing.
+- ASC owns mission truth and governance.
+- OMP owns coding-session execution.
+- OmniRoute owns model/provider routing.
+- Single-driver deterministic scheduler contract in v2.1.
+- Database-level atomic `increment_attempt_count` with SQLite durability.
+- Model selection is configurable at defaults/spec/task levels but not hardcoded as an ASC default.
 - Do not create duplicate authoritative lifecycle state.
 - Do not create a third independent orchestration loop.
 - Use bounded retries; never infinite retries.
 - Verification must happen after execution, not instead of execution.
 - Never auto-push, auto-merge, auto-tag or auto-release unless explicitly authorized.
-- One verified task may create one commit.
+- One verified task creates one Git commit upon verification PASS.
 - Do not silently overwrite pre-existing user changes.
 - PASS is terminal for a bounded verification mission: **REPORT → STOP**.
 - A new plan must update the master docs before implementation.
@@ -278,24 +269,18 @@ A confident AI statement is never stronger than actual Git/code/test evidence.
 
 ## 9. Next planned engineering boundary
 
-The current most important unimplemented bridge is:
+With the v2.1 Real OMP Runtime Integration verified in sandbox, the next planned boundary is:
 
 ```text
-ASC mission/control plane
+Universal ASC v2.1 Engine
         ↓
-real OMP executor adapter
+Small bounded real-project pilot
         ↓
-actual repository edits
+Task-scoped Git staging isolation
         ↓
-deterministic verification
+Multi-command verification sequence definition
         ↓
-bounded repair/retry
-        ↓
-safe Git commit
-        ↓
-next ASC task
+Convergence of legacy PESE and Universal SQLite state stores
 ```
-
-That work belongs to the next milestone and is **not** considered complete in this snapshot.
 
 Read `PLAN.md` and `VERIFY.md` before implementing it.
