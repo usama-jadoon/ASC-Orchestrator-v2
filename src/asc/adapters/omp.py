@@ -62,11 +62,22 @@ class OMPAdapter(AgentAdapter):
             if found:
                 return found
 
-        # Check common names
-        for name in ["omp", "omp-cli", "open-model-platform"]:
+        # Check OMP_PATH environment variable
+        env_omp = os.environ.get("OMP_PATH")
+        if env_omp and os.path.exists(env_omp) and os.access(env_omp, os.X_OK):
+            return env_omp
+
+        # Check common names in PATH
+        for name in ["omp", "omp.exe", "omp-cli", "open-model-platform"]:
             found = shutil.which(name)
             if found:
                 return found
+
+        # Check bun directory
+        home = Path.home()
+        for bun_candidate in [home / ".bun" / "bin" / "omp.exe", home / ".bun" / "bin" / "omp"]:
+            if bun_candidate.exists():
+                return str(bun_candidate)
 
         # Check common install locations on Windows
         if os.name == "nt":
@@ -116,11 +127,11 @@ class OMPAdapter(AgentAdapter):
             omp_executable = self._get_omp_executable()
             work_dir = self._resolve_working_dir(context)
 
-            # Real OMP CLI invocation. The prompt is passed as a positional
-            # argument; no invented --prompt flag. Windows paths with spaces
-            # are passed as a single argv element (no shell), so quoting is
-            # handled by subprocess/argv, not by the harness.
-            cmd = [omp_executable, "launch", "-p", "--auto-approve"]
+            # Real OMP CLI invocation for non-interactive execution:
+            #   omp -p --auto-approve [--cwd <target>] <prompt>
+            # There is NO launch subcommand. The prompt is passed as a positional argument.
+            # Windows paths with spaces are passed as a single argv element without shell=True.
+            cmd = [omp_executable, "-p", "--auto-approve"]
             if work_dir and work_dir != ".":
                 cmd.extend(["--cwd", work_dir])
             cmd.append(task.prompt)
@@ -128,6 +139,7 @@ class OMPAdapter(AgentAdapter):
             start_time = time.time()
             result = subprocess.run(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 cwd=work_dir if work_dir != "." else None,
                 capture_output=True,
                 text=True,

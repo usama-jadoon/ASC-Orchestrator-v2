@@ -57,22 +57,32 @@ class MissionDriver:
         """Initialize driver with flexible arguments."""
         if args and isinstance(args[0], State):
             self.state = args[0]
-            self.adapter = kwargs.get("adapter") or (
-                args[1] if len(args) > 1 else ShellAdapter()
-            )
-            self.repository = kwargs.get("repository", Repository())
             self.db_path = kwargs.get("db_path") or (
-                args[2] if len(args) > 2 else ".asc/asc.db"
+                args[2] if len(args) > 2 else str(self.state.db_path)
             )
             self.timeout = kwargs.get("timeout") or (args[3] if len(args) > 3 else 300)
             self.mission_id = (
                 kwargs.get("mission_id") or self.state.get_last_mission_id()
             )
-            self.executor = kwargs.get("executor") or "omp"
-            self.working_directory = kwargs.get("working_directory")
-            # Defaults for retry/working_dir when instantiated with State
+            mission_record = (
+                self.state.get_mission(self.mission_id) if self.mission_id else None
+            )
+            mission_executor = getattr(mission_record, "executor", None) if mission_record else None
+            mission_wd = getattr(mission_record, "working_directory", None) if mission_record else None
+
+            self.executor = kwargs.get("executor") or mission_executor or "omp"
+            self.working_directory = kwargs.get("working_directory") or mission_wd
+            self.spec_working_directory = self.working_directory
+
+            if "adapter" in kwargs and kwargs["adapter"] is not None:
+                self.adapter = kwargs["adapter"]
+            elif len(args) > 1 and args[1] is not None:
+                self.adapter = args[1]
+            else:
+                self.adapter = build_adapter(self.executor, self.timeout)
+
+            self.repository = kwargs.get("repository", Repository())
             self._max_attempts = kwargs.get("max_attempts", 3)
-            self.spec_working_directory = kwargs.get("working_directory")
         else:
             spec = kwargs.get("spec") or (args[0] if args else None)
             db_path = kwargs.get("db_path") or (
@@ -228,7 +238,11 @@ class MissionDriver:
             )
 
             # Stage 1: EXECUTE via adapter
-            adapter_res = self.adapter.execute(task, context)
+            if task.executor and task.executor.lower() != self.executor.lower():
+                task_adapter = build_adapter(task.executor, self.timeout)
+            else:
+                task_adapter = self.adapter
+            adapter_res = task_adapter.execute(task, context)
             exec_exit = getattr(adapter_res, "exit_code", 1)
             exec_stdout = getattr(adapter_res, "stdout", "")
             exec_stderr = getattr(adapter_res, "stderr", "")

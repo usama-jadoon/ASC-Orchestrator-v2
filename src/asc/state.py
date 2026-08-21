@@ -44,8 +44,20 @@ class State:
                     goal TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    executor TEXT,
+                    working_directory TEXT
                 )""")
+
+            # Backwards compatibility migration for pre-existing tables
+            try:
+                cursor.execute("ALTER TABLE missions ADD COLUMN executor TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE missions ADD COLUMN working_directory TEXT")
+            except sqlite3.OperationalError:
+                pass
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -137,12 +149,24 @@ class State:
         """Save a complete mission spec including all its tasks."""
         mission_id = spec.id if hasattr(spec, "id") else spec.get("id")
         goal = spec.goal if hasattr(spec, "goal") else spec.get("goal", "")
+        executor = getattr(spec, "executor", None)
+        if executor is None and hasattr(spec, "defaults"):
+            executor = getattr(spec.defaults, "executor", None)
+        elif executor is None and isinstance(spec, dict):
+            executor = spec.get("executor") or spec.get("defaults", {}).get("executor")
+
+        working_directory = getattr(spec, "working_directory", None)
+        if working_directory is None and hasattr(spec, "defaults"):
+            working_directory = getattr(spec.defaults, "working_directory", None)
+        elif working_directory is None and isinstance(spec, dict):
+            working_directory = spec.get("working_directory") or spec.get("defaults", {}).get("working_directory")
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             now = time.time()
             cursor.execute(
-                "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (mission_id, goal, "PENDING", now, now),
+                "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at, executor, working_directory) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (mission_id, goal, "PENDING", now, now, executor, working_directory),
             )
             conn.commit()
         tasks = spec.tasks if hasattr(spec, "tasks") else spec.get("tasks", [])

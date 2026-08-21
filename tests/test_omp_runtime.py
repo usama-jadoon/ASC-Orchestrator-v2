@@ -31,23 +31,23 @@ from asc.state import State
 class TestOMPAdapterCommandConstruction(unittest.TestCase):
     """Test that OMP adapter builds correct CLI command."""
 
-    def test_omp_launch_with_positional_prompt(self):
-        """OMP command uses 'launch' subcommand and positional prompt (not --prompt)."""
+    def test_omp_invocation_with_positional_prompt(self):
+        """OMP command uses top-level -p --auto-approve with positional prompt (no launch subcommand)."""
         with patch("shutil.which", return_value="/fake/omp"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
                 adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp"))
                 task = Task(id="t1", title="Test", prompt="Write hello world")
-                result = adapter.execute(task, {"working_directory": "/tmp"})
+                adapter.execute(task, {"working_directory": "/tmp"})
 
                 # Verify the command structure
                 called_cmd = mock_run.call_args[0][0]
                 self.assertEqual(called_cmd[0], "/fake/omp")
-                self.assertEqual(called_cmd[1], "launch")
-                self.assertIn("-p", called_cmd)
+                self.assertEqual(called_cmd[1], "-p")
                 self.assertIn("--auto-approve", called_cmd)
                 self.assertEqual(called_cmd[-1], "Write hello world")
-                # Must NOT contain invented flags
+                # Must NOT contain launch or invented flags
+                self.assertNotIn("launch", called_cmd)
                 self.assertNotIn("--prompt", called_cmd)
                 self.assertNotIn("--working-dir", called_cmd)
                 self.assertNotIn("--timeout", called_cmd)
@@ -59,7 +59,7 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
                 mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
                 adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp"))
                 task = Task(id="t1", title="Test", prompt="Do stuff")
-                result = adapter.execute(
+                adapter.execute(
                     task, {"working_directory": "/home/user/project with spaces"}
                 )
 
@@ -78,19 +78,10 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
                 mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
                 adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp", timeout=60))
                 task = Task(id="t1", title="Test", prompt="Do stuff")
-                result = adapter.execute(task, {})
+                adapter.execute(task, {})
 
                 called_cmd = mock_run.call_args[0][0]
                 self.assertNotIn("--timeout", called_cmd)
-
-    def test_omp_no_timeout_flag(self):
-        """OMP adapter does not pass --timeout to CLI; harness enforces timeout."""
-        with patch("shutil.which", return_value="/fake/omp"):
-            adapter = OMPAdapter(config=OMPConfig(omp_path="/fake/omp", timeout=60))
-            task = Task(id="t1", title="Test", prompt="Do stuff")
-            result = adapter.execute(task, {})
-            cmd_str = result.command.command
-            self.assertNotIn("--timeout", cmd_str)
 
     def test_omp_discovery_via_path(self):
         """OMP adapter discovers executable via shutil.which."""
@@ -934,6 +925,162 @@ class TestGitSafety(unittest.TestCase):
             ["git", "remote", "-v"], cwd=self.temp_dir, capture_output=True, text=True
         ).stdout.strip()
         self.assertEqual(remotes, "")
+
+
+class TestMissionSpecParserRuntimeFieldPropagation(unittest.TestCase):
+    """Test full parsing and propagation of defaults and task-level fields."""
+
+    def test_parser_propagates_all_runtime_fields(self):
+        """YAML defaults and task fields survive to MissionSpec and MissionDriver."""
+        from asc.spec import MissionSpecParser
+
+        yaml_content = """
+id: mission-runtime-fields
+goal: "Verify complete runtime field propagation"
+defaults:
+  max_attempts: 5
+  verification_timeout: 120
+  executor: "omp"
+  working_directory: "/default/proj/dir"
+tasks:
+  - id: t1
+    title: "Task 1 Default"
+    prompt: "Default prompt"
+    command: "pytest tests/test_1.py"
+  - id: t2
+    title: "Task 2 Overridden"
+    prompt: "Task prompt"
+    executor: "shell"
+    working_directory: "/task2/custom/dir"
+    verify:
+      - "pytest tests/test_2.py"
+"""
+        spec = MissionSpecParser.parse(yaml_content)
+
+        # Assert spec defaults
+        self.assertEqual(spec.id, "mission-runtime-fields")
+        self.assertEqual(spec.defaults.max_attempts, 5)
+        self.assertEqual(spec.defaults.verification_timeout, 120)
+        self.assertEqual(spec.defaults.executor, "omp")
+        self.assertEqual(spec.defaults.working_directory, "/default/proj/dir")
+        self.assertEqual(spec.executor, "omp")
+        self.assertEqual(spec.working_directory, "/default/proj/dir")
+
+        # Assert task 1 (inherits defaults)
+        self.assertEqual(spec.tasks[0].id, "t1")
+        self.assertIsNone(spec.tasks[0].executor)
+        self.assertIsNone(spec.tasks[0].working_directory)
+        self.assertEqual(spec.tasks[0].command.command, "pytest tests/test_1.py")
+
+        # Assert task 2 (overridden executor, working_directory, verify alias)
+        self.assertEqual(spec.tasks[1].id, "t2")
+        self.assertEqual(spec.tasks[1].executor, "shell")
+        self.assertEqual(spec.tasks[1].working_directory, "/task2/custom/dir")
+        self.assertEqual(spec.tasks[1].command.command, "pytest tests/test_2.py")
+
+        # Verify MissionDriver receives these values
+        with patch("shutil.which", return_value="/fake/omp"):
+            temp_dir = tempfile.mkdtemp()
+            try:
+                db_path = str(Path(temp_dir) / "test.db")
+                driver = MissionDriver(spec=spec, db_path=db_path)
+                self.assertEqual(driver.executor, "omp")
+                self.assertIsInstance(driver.adapter, OMPAdapter)
+                self.assertEqual(driver._max_attempts, 5)
+                self.assertEqual(driver.spec_working_directory, "/default/proj/dir")
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class TestResumeExecutorConsistency(unittest.TestCase):
+    """Test resume preserves executor and working directory configuration deterministically."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = str(Path(self.temp_dir) / "test.db")
+        self.state = State(self.db_path)
+
+    def tearDown(self):
+        self.state.close()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_resume_omp_mission_uses_omp_adapter(self):
+        """Persisted OMP mission does not silently resume using ShellAdapter."""
+        with patch("shutil.which", return_value="/fake/omp"):
+            spec = MissionSpec(
+                id="mission-omp-resume",
+                goal="Goal",
+                tasks=[Task(id="t1", title="T1", prompt="Prompt")],
+                defaults=MissionDefaults(executor="omp", working_directory="/my/project"),
+            )
+            # Save mission to state (like asc init / run)
+            self.state.save_mission(spec)
+
+            # Re-instantiate driver using ONLY state (simulating asc resume)
+            driver = MissionDriver(self.state, mission_id="mission-omp-resume")
+
+            self.assertEqual(driver.executor, "omp")
+            self.assertIsInstance(driver.adapter, OMPAdapter)
+            self.assertEqual(driver.working_directory, "/my/project")
+
+    def test_resume_shell_mission_uses_shell_adapter(self):
+        """Persisted Shell mission resumes using ShellAdapter."""
+        spec = MissionSpec(
+            id="mission-shell-resume",
+            goal="Goal",
+            tasks=[Task(id="t1", title="T1", prompt="Prompt")],
+            defaults=MissionDefaults(executor="shell", working_directory="/my/shell/project"),
+        )
+        self.state.save_mission(spec)
+
+        driver = MissionDriver(self.state, mission_id="mission-shell-resume")
+
+        self.assertEqual(driver.executor, "shell")
+        from asc.adapters.shell import ShellAdapter
+        self.assertIsInstance(driver.adapter, ShellAdapter)
+        self.assertEqual(driver.working_directory, "/my/shell/project")
+
+
+class TestTaskLevelExecutorOverride(unittest.TestCase):
+    """Test task-level executor override during execution."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = str(Path(self.temp_dir) / "test.db")
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_task_executor_override_uses_correct_adapter(self):
+        """Task with executor='shell' runs via ShellAdapter even if mission defaults to omp."""
+        with patch("shutil.which", return_value="/fake/omp"):
+            executed_by = []
+
+            spec = MissionSpec(
+                id="mission-override",
+                goal="Goal",
+                tasks=[
+                    Task(
+                        id="t1",
+                        title="T1",
+                        prompt="echo task_override_output",
+                        executor="shell",
+                    )
+                ],
+                defaults=MissionDefaults(executor="omp"),
+            )
+            driver = MissionDriver(spec=spec, db_path=self.db_path)
+            # Driver default is OMPAdapter
+            self.assertIsInstance(driver.adapter, OMPAdapter)
+
+            task = driver.state.get_tasks("mission-override")[0]
+            success, exit_code = driver._execute_task_with_retry(task)
+
+            self.assertTrue(success)
+            self.assertEqual(exit_code, 0)
+            attempts = driver.state.get_attempts("t1")
+            self.assertEqual(len(attempts), 1)
+            self.assertIn("task_override_output", attempts[0]["stdout"])
 
 
 class TestOMPTimeoutHandling(unittest.TestCase):

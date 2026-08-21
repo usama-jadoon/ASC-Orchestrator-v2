@@ -100,16 +100,21 @@ class Mission:
     status: str
     created_at: float
     updated_at: float
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> "Mission":
         """Create Mission from database row."""
+        keys = row.keys() if hasattr(row, "keys") else []
         return cls(
             id=row["id"],
             goal=row["goal"],
             status=row["status"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            executor=row["executor"] if "executor" in keys else None,
+            working_directory=row["working_directory"] if "working_directory" in keys else None,
         )
 
 
