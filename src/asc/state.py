@@ -44,8 +44,20 @@ class State:
                     goal TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    executor TEXT,
+                    working_directory TEXT
                 )""")
+
+            # Backwards compatibility migration for pre-existing tables
+            try:
+                cursor.execute("ALTER TABLE missions ADD COLUMN executor TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE missions ADD COLUMN working_directory TEXT")
+            except sqlite3.OperationalError:
+                pass
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -62,6 +74,9 @@ class State:
                     completed_at REAL,
                     exit_code INTEGER,
                     updated_at REAL NOT NULL,
+                    working_directory TEXT,
+                    executor TEXT,
+                    metadata TEXT,
                     FOREIGN KEY(mission_id) REFERENCES missions(id)
                 )""")
 
@@ -121,20 +136,66 @@ class State:
             return [Mission.from_row(row) for row in rows]
 
     def get_last_mission_id(self) -> Optional[str]:
-        """Get the ID of the most recent mission."""
-        missions = self.get_all_missions()
-        return missions[0].id if missions else None
+        """Retrieve the ID of the most recently created mission, or None if no missions exist."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM missions ORDER BY created_at DESC LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                return str(row["id"])
+            return None
+
+    def increment_attempt_count(self, task_id: str) -> int:
+        """Atomically increment the attempt count for a task in SQLite and return the updated count."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET attempt_count = COALESCE(attempt_count, 0) + 1 WHERE id = ?",
+                (task_id,),
+            )
+            cursor.execute("SELECT attempt_count FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            conn.commit()
+            return (
+                int(row["attempt_count"])
+                if row and row["attempt_count"] is not None
+                else 0
+            )
+
+    def update_attempt_count(self, task_id: str, new_count: int) -> None:
+        """Set the attempt count for a task to a specific value."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET attempt_count = ? WHERE id = ?",
+                (new_count, task_id),
+            )
+            conn.commit()
 
     def save_mission(self, spec: Any) -> None:
         """Save a complete mission spec including all its tasks."""
         mission_id = spec.id if hasattr(spec, "id") else spec.get("id")
         goal = spec.goal if hasattr(spec, "goal") else spec.get("goal", "")
+        executor = getattr(spec, "executor", None)
+        if executor is None and hasattr(spec, "defaults"):
+            executor = getattr(spec.defaults, "executor", None)
+        elif executor is None and isinstance(spec, dict):
+            executor = spec.get("executor") or spec.get("defaults", {}).get("executor")
+
+        working_directory = getattr(spec, "working_directory", None)
+        if working_directory is None and hasattr(spec, "defaults"):
+            working_directory = getattr(spec.defaults, "working_directory", None)
+        elif working_directory is None and isinstance(spec, dict):
+            working_directory = spec.get("working_directory") or spec.get(
+                "defaults", {}
+            ).get("working_directory")
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
             now = time.time()
             cursor.execute(
-                "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (mission_id, goal, "PENDING", now, now),
+                "INSERT OR REPLACE INTO missions (id, goal, status, created_at, updated_at, executor, working_directory) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (mission_id, goal, "PENDING", now, now, executor, working_directory),
             )
             conn.commit()
         tasks = spec.tasks if hasattr(spec, "tasks") else spec.get("tasks", [])
@@ -168,8 +229,7 @@ class State:
                     "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
                     (task.status.value, updated_at, task.id),
                 )
-            conn.commit()
-            return cursor.rowcount > 0
+        return True
 
     def save_task(self, task: Task, mission_id: str) -> None:
         """Insert or update a task record."""
@@ -177,12 +237,14 @@ class State:
             cursor = conn.cursor()
             depends_json = json.dumps(task.depends_on)
             command_str = task.command.command if task.command else None
+            metadata_json = json.dumps(task.metadata) if task.metadata else None
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO tasks
                 (id, mission_id, title, status, depends_on, prompt, command,
-                 attempt_count, commit_sha, started_at, completed_at, exit_code, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 attempt_count, commit_sha, started_at, completed_at, exit_code, updated_at,
+                 working_directory, executor, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     task.id,
@@ -198,9 +260,11 @@ class State:
                     task.completed_at,
                     None,
                     time.time(),
+                    task.working_directory,
+                    task.executor,
+                    metadata_json,
                 ),
             )
-            conn.commit()
 
     def record_attempt(self, attempt_data: Any) -> None:
         """Record task attempt details."""
@@ -283,7 +347,10 @@ class State:
         """Retrieve events for a mission."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM events WHERE mission_id = ?", (mission_id,))
+            cursor.execute(
+                "SELECT * FROM events WHERE mission_id = ? ORDER BY timestamp ASC",
+                (mission_id,),
+            )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 
@@ -297,6 +364,7 @@ class State:
         command = None
         if row["command"]:
             command = VerificationCommand(command=row["command"])
+        metadata = json.loads(row["metadata"]) if row["metadata"] else {}
         return Task(
             id=row["id"],
             title=row["title"],
@@ -307,4 +375,7 @@ class State:
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             commit_sha=row["commit_sha"],
+            working_directory=row["working_directory"],
+            executor=row["executor"],
+            metadata=metadata,
         )

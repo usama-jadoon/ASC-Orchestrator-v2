@@ -65,6 +65,9 @@ class Task:
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     commit_sha: Optional[str] = None
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass
@@ -73,6 +76,9 @@ class MissionDefaults:
 
     max_attempts: int = 3
     verification_timeout: int = 300
+    executor: str = "omp"
+    working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass
@@ -83,6 +89,9 @@ class MissionSpec:
     goal: str
     tasks: List[Task]
     defaults: MissionDefaults = field(default_factory=MissionDefaults)
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
+    model: Optional[str] = None
 
 
 @dataclass
@@ -94,16 +103,23 @@ class Mission:
     status: str
     created_at: float
     updated_at: float
+    executor: Optional[str] = None
+    working_directory: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> "Mission":
         """Create Mission from database row."""
+        keys = row.keys() if hasattr(row, "keys") else []
         return cls(
             id=row["id"],
             goal=row["goal"],
             status=row["status"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            executor=row["executor"] if "executor" in keys else None,
+            working_directory=row["working_directory"]
+            if "working_directory" in keys
+            else None,
         )
 
 

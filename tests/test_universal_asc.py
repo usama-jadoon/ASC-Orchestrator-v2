@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 from asc.adapters.mock import MockAdapter
@@ -264,6 +265,40 @@ class TestSQLitePersistence(unittest.TestCase):
         events = self.state.get_events("mission-1")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["event_type"], "TASK_STARTED")
+
+    def test_get_last_mission_id(self):
+        """Test retrieving the most recently created mission ID."""
+        self.state.init_db()
+        self.assertIsNone(self.state.get_last_mission_id())
+
+        spec1 = MissionSpec(id="m-first", goal="G1", tasks=[])
+        self.state.save_mission(spec1)
+        self.assertEqual(self.state.get_last_mission_id(), "m-first")
+
+        time.sleep(0.01)
+        spec2 = MissionSpec(id="m-second", goal="G2", tasks=[])
+        self.state.save_mission(spec2)
+        self.assertEqual(self.state.get_last_mission_id(), "m-second")
+
+    def test_increment_attempt_count_sequential_persistence(self):
+        """Test database-atomic sequential attempt_count increments."""
+        self.state.init_db()
+        task = Task(id="task-incr", title="Incr Task", prompt="Test")
+        self.state.save_task(task, "m1")
+
+        c1 = self.state.increment_attempt_count("task-incr")
+        self.assertEqual(c1, 1)
+
+        c2 = self.state.increment_attempt_count("task-incr")
+        self.assertEqual(c2, 2)
+
+        c3 = self.state.increment_attempt_count("task-incr")
+        self.assertEqual(c3, 3)
+
+        # Confirm value survives in a fresh query
+        tasks = self.state.get_tasks("m1")
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].id, "task-incr")
 
 
 class TestVerifier(unittest.TestCase):

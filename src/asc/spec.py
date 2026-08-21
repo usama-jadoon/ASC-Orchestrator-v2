@@ -9,7 +9,7 @@ from typing import Dict, List, Union
 
 import yaml
 
-from .models import MissionSpec, Task, VerificationCommand
+from .models import MissionDefaults, MissionSpec, Task, VerificationCommand
 
 
 class MissionSpecParser:
@@ -57,6 +57,29 @@ class MissionSpecParser:
         if not isinstance(task_dicts, list):
             raise ValueError("'tasks' must be a list")
 
+        # Parse defaults
+        defaults_data = data.get("defaults", {})
+        if isinstance(defaults_data, MissionDefaults):
+            defaults = defaults_data
+        elif isinstance(defaults_data, dict):
+            defaults = MissionDefaults(
+                max_attempts=int(defaults_data.get("max_attempts", 3)),
+                verification_timeout=int(
+                    defaults_data.get("verification_timeout", 300)
+                ),
+                executor=str(defaults_data.get("executor", "omp")),
+                working_directory=defaults_data.get("working_directory"),
+                model=defaults_data.get("model"),
+            )
+        else:
+            defaults = MissionDefaults()
+
+        spec_executor = data.get("executor") or defaults.executor
+        spec_working_directory = (
+            data.get("working_directory") or defaults.working_directory
+        )
+        spec_model = data.get("model") or defaults.model
+
         task_ids = set()
         tasks = []
 
@@ -99,14 +122,26 @@ class MissionSpecParser:
                         f"Task validation failed: missing dependency '{dep_id}'"
                     )
 
-            # Build task object
+            # Build task command / verification
             command_data = task_data.get("command")
+            if command_data is None:
+                command_data = task_data.get("verify")
+
             command = None
-            if command_data:
+            if command_data is not None:
                 if isinstance(command_data, str):
                     command = VerificationCommand(command=command_data)
                 elif isinstance(command_data, dict):
                     command = VerificationCommand(**command_data)
+                elif isinstance(command_data, list) and command_data:
+                    if isinstance(command_data[0], str):
+                        command = VerificationCommand(command=command_data[0])
+                    elif isinstance(command_data[0], dict):
+                        command = VerificationCommand(**command_data[0])
+
+            task_executor = task_data.get("executor")
+            task_working_directory = task_data.get("working_directory")
+            task_model = task_data.get("model")
 
             tasks.append(
                 Task(
@@ -115,6 +150,10 @@ class MissionSpecParser:
                     prompt=task_data["prompt"],
                     depends_on=depends_on,
                     command=command,
+                    executor=task_executor,
+                    working_directory=task_working_directory,
+                    model=task_model,
+                    metadata=task_data.get("metadata", {}),
                 )
             )
 
@@ -122,7 +161,10 @@ class MissionSpecParser:
             id=data["id"],
             goal=data["goal"],
             tasks=tasks,
-            defaults=data.get("defaults", {}),
+            defaults=defaults,
+            executor=spec_executor,
+            working_directory=spec_working_directory,
+            model=spec_model,
         )
 
     @staticmethod
