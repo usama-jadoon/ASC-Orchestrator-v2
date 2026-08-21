@@ -86,17 +86,15 @@ class TestOMPAdapterCommandConstruction(unittest.TestCase):
     def test_omp_discovery_via_path(self):
         """OMP adapter discovers executable via shutil.which."""
         with patch("shutil.which", return_value="/usr/local/bin/omp"):
-            adapter = OMPAdapter(config=OMPConfig())
-            exe = adapter._get_omp_executable()
+             OMPAdapter(config=OMPConfig())._get_omp_executable()
 
     def test_omp_config_override_path(self):
         """Explicit OMP config path overrides PATH discovery."""
         with patch("shutil.which", return_value="/ignored/omp"):
             with patch("os.path.exists", return_value=True):
                 with patch("os.access", return_value=True):
-                    adapter = OMPAdapter(config=OMPConfig(omp_path="/custom/omp"))
-                    exe = adapter._get_omp_executable()
-                    self.assertEqual(exe, "/custom/omp")
+                    result = OMPAdapter(config=OMPConfig(omp_path="/custom/omp"))._get_omp_executable()
+                    self.assertEqual(result, "/custom/omp")
 
     """Test execute -> verify order (not verify -> execute)."""
 
@@ -1054,7 +1052,6 @@ class TestTaskLevelExecutorOverride(unittest.TestCase):
     def test_task_executor_override_uses_correct_adapter(self):
         """Task with executor='shell' runs via ShellAdapter even if mission defaults to omp."""
         with patch("shutil.which", return_value="/fake/omp"):
-            executed_by = []
 
             spec = MissionSpec(
                 id="mission-override",
