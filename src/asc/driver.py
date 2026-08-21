@@ -7,6 +7,7 @@ Core execution loop for mission orchestration.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .adapters.mock import MockAdapter
@@ -311,10 +312,23 @@ class MissionDriver:
         task.completed_at = time.time()
         self.state.update_task_status(task, exit_code=0)
 
+        # Resolve repository for the target working directory
+        repo_dir = (
+            task.working_directory
+            or self.working_directory
+            or getattr(self, "spec_working_directory", None)
+            or "."
+        )
+        task_repo = (
+            self.repository
+            if str(self.repository.path) == str(Path(repo_dir))
+            else Repository(repo_dir)
+        )
+
         # Commit if git repository exists and has changes
-        if self.repository.has_changes():
+        if task_repo.has_changes():
             commit_msg = f"feat({task.id}): {task.title}"
-            sha = self.repository.commit(commit_msg)
+            sha = task_repo.commit(commit_msg)
             task.commit_sha = sha
 
         # Log event
