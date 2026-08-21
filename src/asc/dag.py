@@ -25,7 +25,7 @@ def is_task_ready(task: Task, all_tasks: List[Task] | Dict[str, Task]) -> bool:
     Determine if a task is ready to run.
 
     - All dependencies must exist and be in COMPLETED status.
-    - Task must be PENDING (not already COMPLETED/FAILED).
+    - Task must be PENDING (not already COMPLETED/FAILED/RUNNING).
     """
     # Convert list to dict registry if needed
     if isinstance(all_tasks, list):
@@ -67,8 +67,9 @@ def evaluate_mission(
     """
     Evaluate mission state and return scheduler outcome.
 
-    - If runnable tasks exist: return RUNNABLE with runnable list
     - If all tasks completed: return COMPLETE
+    - If any task is currently RUNNING: return RUNNING
+    - If runnable tasks exist: return RUNNABLE with runnable list
     - Otherwise: return BLOCKED with blocked task IDs
     """
     # Convert list to dict registry if needed
@@ -85,17 +86,28 @@ def evaluate_mission(
     if completed_count == total_task_count and total_task_count > 0:
         return MissionEvaluationResult(state=SchedulerState.COMPLETE)
 
+    # Check if any task is actively running
+    running_tasks = [
+        task for task in task_registry.values() if task.status == TaskStatus.RUNNING
+    ]
+    if running_tasks:
+        runnable = get_runnable_tasks(task_registry)
+        return MissionEvaluationResult(
+            state=SchedulerState.RUNNING,
+            runnable_tasks=runnable,
+        )
+
     runnable = get_runnable_tasks(task_registry)
     if runnable:
         return MissionEvaluationResult(
             state=SchedulerState.RUNNABLE, runnable_tasks=runnable
         )
 
-    # BLOCKED: tasks exist but none are runnable
+    # BLOCKED: tasks exist but none are running or runnable
     blocked_ids = [
         task.id
         for task in task_registry.values()
-        if task.status != TaskStatus.COMPLETED
+        if task.status not in (TaskStatus.COMPLETED, TaskStatus.RUNNING)
     ]
     return MissionEvaluationResult(
         state=SchedulerState.BLOCKED, blocked_ids=blocked_ids

@@ -1,6 +1,7 @@
-"""Universal ASC v2.0.0 - OMP Adapter Module.
+"""Universal ASC v2.2.0 - OMP Adapter Module.
 
-Real OMP (Open Model Platform) adapter for executing coding tasks.
+Real OMP (Open Model Platform) adapter for executing coding tasks with
+heartbeat reporting and process isolation.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from ..models import AgentResult, Task, VerificationCommand, VerificationResult
 from .base import AgentAdapter
@@ -22,7 +23,7 @@ from .base import AgentAdapter
 class OMPConfig:
     """Configuration for OMP adapter."""
 
-    timeout: int = 300
+    timeout: int = 600
     omp_path: Optional[str] = None
     working_directory: Optional[str] = None
     model: Optional[str] = None
@@ -41,7 +42,6 @@ class OMPAdapter(AgentAdapter):
 
     def prepare(self, context: Dict[str, Any]) -> None:
         """Prepare OMP adapter for execution."""
-        # Validate working directory
         if self.config.working_directory:
             work_dir = Path(self.config.working_directory)
             if not work_dir.exists():
@@ -53,28 +53,23 @@ class OMPAdapter(AgentAdapter):
 
     def _discover_omp_executable(self) -> Optional[str]:
         """Discover OMP executable from PATH or config."""
-        # Check explicit config first
         if self.config.omp_path:
             omp_path = self.config.omp_path
             if os.path.exists(omp_path) and os.access(omp_path, os.X_OK):
                 return omp_path
-            # Try as just a name in PATH
             found = shutil.which(omp_path)
             if found:
                 return found
 
-        # Check OMP_PATH environment variable
         env_omp = os.environ.get("OMP_PATH")
         if env_omp and os.path.exists(env_omp) and os.access(env_omp, os.X_OK):
             return env_omp
 
-        # Check common names in PATH
         for name in ["omp", "omp.exe", "omp-cli", "open-model-platform"]:
             found = shutil.which(name)
             if found:
                 return found
 
-        # Check bun directory
         home = Path.home()
         for bun_candidate in [
             home / ".bun" / "bin" / "omp.exe",
@@ -83,7 +78,6 @@ class OMPAdapter(AgentAdapter):
             if bun_candidate.exists():
                 return str(bun_candidate)
 
-        # Check common install locations on Windows
         if os.name == "nt":
             for install_path in [
                 r"C:\Program Files\OMP\omp.exe",
@@ -107,11 +101,7 @@ class OMPAdapter(AgentAdapter):
         return self._omp_executable
 
     def _resolve_working_dir(self, context: Dict[str, Any]) -> str:
-        """Resolve the working directory for execution.
-
-        Priority: task-level working_directory, then adapter config, then
-        context, then current directory.
-        """
+        """Resolve the working directory for execution."""
         work_dir = (
             context.get("working_directory") or self.config.working_directory or "."
         )
@@ -120,21 +110,18 @@ class OMPAdapter(AgentAdapter):
     def execute(self, task: Task, context: Dict[str, Any]) -> VerificationResult:
         """Execute task through the real OMP CLI.
 
-        Uses the verified OMP invocation:
-            omp launch [MESSAGES...] [FLAGS]
-        where MESSAGES are positional (the task prompt), and supported flags
-        include --cwd, -p/--print (non-interactive), and --auto-approve.
-        There is no `run` subcommand and no `--timeout` flag; the timeout is
-        enforced by this harness via subprocess.
+        Invocation:
+            omp -p --auto-approve [--model <model>] [--cwd <target>] <prompt>
         """
         try:
             omp_executable = self._get_omp_executable()
             work_dir = self._resolve_working_dir(context)
+            timeout = (
+                task.execution_timeout
+                or context.get("execution_timeout")
+                or self.config.timeout
+            )
 
-            # Real OMP CLI invocation for non-interactive execution:
-            #   omp -p --auto-approve [--model <model>] [--cwd <target>] <prompt>
-            # There is NO launch subcommand. The prompt is passed as a positional argument.
-            # Windows paths with spaces are passed as a single argv element without shell=True.
             cmd = [omp_executable, "-p", "--auto-approve"]
             model = (
                 (context or {}).get("model")
@@ -148,33 +135,75 @@ class OMPAdapter(AgentAdapter):
                 cmd.extend(["--cwd", work_dir])
             cmd.append(task.prompt)
 
-            start_time = time.time()
-            result = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                cwd=work_dir if work_dir != "." else None,
-                capture_output=True,
-                text=True,
-                timeout=self.config.timeout,
+            heartbeat_callback: Optional[Callable[[float], None]] = (context or {}).get(
+                "heartbeat_callback"
             )
-            end_time = time.time()
 
-            return VerificationResult(
-                command=VerificationCommand(
-                    command=" ".join(shlex.quote(c) for c in cmd)
-                ),
-                stdout=result.stdout,
-                stderr=result.stderr,
-                exit_code=result.returncode,
-                duration=end_time - start_time,
-            )
+            start_time = time.time()
+
+            if heartbeat_callback is not None:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=work_dir if work_dir != "." else None,
+                    text=True,
+                )
+                while True:
+                    ret = proc.poll()
+                    elapsed = time.time() - start_time
+                    if ret is not None:
+                        break
+                    if elapsed > timeout:
+                        proc.kill()
+                        return VerificationResult(
+                            command=VerificationCommand(command="OMP execution"),
+                            stdout="",
+                            stderr=f"Timeout exceeded after {timeout}s",
+                            exit_code=124,
+                            duration=timeout,
+                        )
+                    heartbeat_callback(elapsed)
+                    time.sleep(0.5)
+
+                stdout_out, stderr_out = proc.communicate()
+                end_time = time.time()
+                return VerificationResult(
+                    command=VerificationCommand(
+                        command=" ".join(shlex.quote(c) for c in cmd)
+                    ),
+                    stdout=stdout_out or "",
+                    stderr=stderr_out or "",
+                    exit_code=proc.returncode,
+                    duration=end_time - start_time,
+                )
+            else:
+                result = subprocess.run(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    cwd=work_dir if work_dir != "." else None,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+                end_time = time.time()
+                return VerificationResult(
+                    command=VerificationCommand(
+                        command=" ".join(shlex.quote(c) for c in cmd)
+                    ),
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    exit_code=result.returncode,
+                    duration=end_time - start_time,
+                )
         except subprocess.TimeoutExpired as exc:
             return VerificationResult(
                 command=VerificationCommand(command="OMP execution"),
                 stdout="",
-                stderr=f"Timeout exceeded after {self.config.timeout}s: {exc}",
+                stderr=f"Timeout exceeded after {timeout}s: {exc}",
                 exit_code=124,
-                duration=self.config.timeout,
+                duration=timeout,
             )
         except Exception as exc:
             return VerificationResult(

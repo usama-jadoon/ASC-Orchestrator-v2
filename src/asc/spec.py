@@ -1,4 +1,4 @@
-"""Universal ASC v2.0.0 - Mission Specification Parser
+"""Universal ASC v2.2.0 - Mission Specification Parser
 
 Parses YAML or JSON mission specifications and validates them.
 """
@@ -64,6 +64,9 @@ class MissionSpecParser:
         elif isinstance(defaults_data, dict):
             defaults = MissionDefaults(
                 max_attempts=int(defaults_data.get("max_attempts", 3)),
+                execution_timeout=int(
+                    defaults_data.get("execution_timeout", 600)
+                ),
                 verification_timeout=int(
                     defaults_data.get("verification_timeout", 300)
                 ),
@@ -79,6 +82,8 @@ class MissionSpecParser:
             data.get("working_directory") or defaults.working_directory
         )
         spec_model = data.get("model") or defaults.model
+        spec_execution_timeout = data.get("execution_timeout") or defaults.execution_timeout
+        spec_verification_timeout = data.get("verification_timeout") or defaults.verification_timeout
 
         task_ids = set()
         tasks = []
@@ -142,6 +147,8 @@ class MissionSpecParser:
             task_executor = task_data.get("executor")
             task_working_directory = task_data.get("working_directory")
             task_model = task_data.get("model")
+            task_exec_timeout = task_data.get("execution_timeout")
+            task_commit_paths = task_data.get("commit_paths")
 
             tasks.append(
                 Task(
@@ -153,6 +160,8 @@ class MissionSpecParser:
                     executor=task_executor,
                     working_directory=task_working_directory,
                     model=task_model,
+                    execution_timeout=task_exec_timeout,
+                    commit_paths=task_commit_paths,
                     metadata=task_data.get("metadata", {}),
                 )
             )
@@ -165,6 +174,8 @@ class MissionSpecParser:
             executor=spec_executor,
             working_directory=spec_working_directory,
             model=spec_model,
+            execution_timeout=spec_execution_timeout,
+            verification_timeout=spec_verification_timeout,
         )
 
     @staticmethod
